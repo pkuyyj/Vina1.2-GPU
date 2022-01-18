@@ -32,7 +32,6 @@
 #define FAST_SIZE 2051
 #define SMOOTH_SIZE 2051
 #define MAX_CONTAINER_SIZE_EVERY_WI 5
-#define EL_TYPE_H_cuda 0
 
 
 typedef struct {

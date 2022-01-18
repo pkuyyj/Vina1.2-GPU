@@ -23,14 +23,32 @@
 
 #include "kernel.h"
 #include "math.h"
+#include <vector>
+/* Original Include files */
+#include "coords.h"
+
+
+__device__
+float pown(const float base, const int n)
+{
+	if (n == 0)
+		return 1;
+ 	if (n == 1)
+	 	return base;
+ 	if (n % 2 == 0)
+	 	return pown(base*base, n/2);
+ 	else 
+	 	return pown(base*base, n/2) * base;
+}
 
 /* Below based on mutate_cont.cpp */
 
-void quaternion_increment(float* q, const float* rotation, float epsilon_fl);
-void normalize_angle(float* x);
+__device__ void quaternion_increment(float* q, const float* rotation, float epsilon_fl);
+
+__device__ void normalize_angle(float* x);
 
 __device__ 
-void output_type_cuda_init(output_type_cuda* out, __constant float* ptr) {
+void output_type_cuda_init(output_type_cuda* out, const float* ptr) {
 	for (int i = 0; i < 3; i++)out->position[i] = ptr[i];
 	for (int i = 0; i < 4; i++)out->orientation[i] = ptr[i + 3];
 	for (int i = 0; i < MAX_NUM_OF_LIG_TORSION; i++)out->lig_torsion[i] = ptr[i + 3 + 4];
@@ -50,6 +68,7 @@ void output_type_cuda_init_with_output(output_type_cuda* out_new, const output_t
 	out_new->e = out_old->e;
 }
 
+__device__
 void output_type_cuda_increment(output_type_cuda* x, const change_cuda* c, float factor, float epsilon_fl) {
 	// position increment
 	for (int k = 0; k < 3; k++) x->position[k] += factor * c->position[k];
@@ -145,6 +164,7 @@ void quaternion_normalize_approx(float* q, float epsilon_fl) {
 	}
 }
 
+__device__
 void quaternion_increment(float* q, const float* rotation, float epsilon_fl) {
 	//if (quaternion_is_normalized(q) != true)printf("\nmutate: quaternion_increment() ERROR!"); // Replace assert(quaternion_is_normalized(q))
 	float q_old[4] = { q[0],q[1],q[2],q[3] };
@@ -159,6 +179,7 @@ float vec_distance_sqr(float* a, float* b) {
 	return pown(a[0] - b[0], 2) + pown(a[1] - b[1], 2) + pown(a[2] - b[2], 2);
 }
 
+__device__
 float gyration_radius(				int				m_lig_begin,
 									int				m_lig_end,
 						const		atom_cuda*		atoms,
@@ -178,12 +199,13 @@ float gyration_radius(				int				m_lig_begin,
 	return (counter > 0) ? sqrt(acc / counter) : 0;
 }
 
+__device__
 void mutate_conf_cuda(const					int				step,
 					const					int				num_steps,
 											output_type_cuda*	c,
-							__constant		int*			random_int_map_gpu,
-							__constant		float			random_inside_sphere_map_gpu[][3],
-							__constant		float*			random_fl_pi_map_gpu,
+									int*			random_int_map_gpu,
+									float			random_inside_sphere_map_gpu[][3],
+									float*			random_fl_pi_map_gpu,
 					const					int				m_lig_begin,
 					const					int				m_lig_end,
 					const					atom_cuda*		atoms,
@@ -232,29 +254,31 @@ typedef struct {
 	int dim;
 }matrix;
 
+__device__
 void matrix_init(matrix* m, int dim, float fill_data) {
 	m->dim = dim;
 	if ((dim * (dim + 1) / 2) > MAX_HESSIAN_MATRIX_SIZE)printf("\nnmatrix: matrix_init() ERROR!");
-	((dim * (dim + 1) / 2)*sizeof(float)); // symmetric matrix
+	// ((dim * (dim + 1) / 2)*sizeof(float)); // symmetric matrix
 	for (int i = 0; i < (dim * (dim + 1) / 2); i++)m->data[i] = fill_data;
 	for (int i = (dim * (dim + 1) / 2); i < MAX_HESSIAN_MATRIX_SIZE; i++)m->data[i] = 0;// Others will be 0
 }
 
 // as rugular 3x3 matrix
+__device__
 void mat_init(matrix* m, float fill_data) {
 	m->dim = 3; // fixed to 3x3 matrix
 	if (9 > MAX_HESSIAN_MATRIX_SIZE)printf("\nnmatrix: mat_init() ERROR!");
 	for (int i = 0; i < 9; i++)m->data[i] = fill_data;
 }
 
-
+__device__
 void matrix_set_diagonal(matrix* m, float fill_data) {
 	for (int i = 0; i < m->dim; i++) {
 		m->data[i + i * (i + 1) / 2] = fill_data;
 	}
 }
 
-// as rugular matrix
+// as regular matrix
 __device__ 
 void matrix_set_element(matrix* m, int dim, int x, int y, float fill_data) {
 	m->data[x + y * dim] = fill_data;
@@ -305,7 +329,8 @@ void change_cuda_init_with_change(change_cuda* g_new, const change_cuda* g_old) 
 }
 
 __device__ 
-void output_type_cuda_init(output_type_cuda* out, __constant float* ptr); /* Function prototype in mutate_conf.cpp */
+void output_type_cuda_init(output_type_cuda* out,  float* ptr); /* Function prototype in mutate_conf.cpp */
+
 __device__ 
 void output_type_cuda_init_with_output(output_type_cuda* out_new, const output_type_cuda* out_old); /* Function prototype in mutate_conf.cpp */
 
@@ -347,7 +372,7 @@ float elementwise_product_sum(const float* a, const float* b) {
 }
 
 __device__ 
-float access_m_data(__constant float* m_data, int m_i, int m_j, int i, int j, int k) {
+float access_m_data( float* m_data, int m_i, int m_j, int i, int j, int k) {
 	return m_data[i + m_i * (j + m_j * k)];
 }
 
@@ -373,7 +398,8 @@ void curl_without_deriv(float* e, float v, const float epsilon_fl) {
 	}
 }
 
-float g_evaluate(			__constant	grid_cuda*	g,
+__device__
+float g_evaluate(				grid_cuda*	g,
 					const				float*		m_coords,				/* double[3] */
 					const				float		slope,				/* double */
 					const				float		v,					/* double */
@@ -513,11 +539,11 @@ float g_evaluate(			__constant	grid_cuda*	g,
 	}
 }
 
-
+__device__
 float ig_eval_deriv(						output_type_cuda*		x,
 											change_cuda*			g, 
 						const				float				v,
-								__constant	ig_cuda*				ig_cuda_gpu,
+									ig_cuda*				ig_cuda_gpu,
 											m_cuda*				m_cuda_gpu,
 						const				float				epsilon_fl
 ) {
@@ -627,6 +653,7 @@ void angle_to_quaternion2(				float*		out,
 	out[3] = s * axis[2];
 }
 
+__device__
 void set(	const				output_type_cuda* x,
 								rigid_cuda*		lig_rigid_gpu,
 								m_coords_cuda*		m_coords_gpu,	
@@ -642,7 +669,7 @@ void set(	const				output_type_cuda* x,
 	int begin = lig_rigid_gpu->atom_range[0][0];
 	int end =	lig_rigid_gpu->atom_range[0][1];
 	for (int i = begin; i < end; i++) {
-		local_to_lab(m_coords_gpu->coords[i], lig_rigid_gpu->origin[0], &atoms[i].coords, lig_rigid_gpu->orientation_m[0]);
+		local_to_lab(m_coords_gpu->coords[i], lig_rigid_gpu->origin[0], atoms[i].coords, lig_rigid_gpu->orientation_m[0]);
 	}
 	/* ************* end node.set_conf ************* */
 
@@ -680,21 +707,22 @@ void set(	const				output_type_cuda* x,
 		begin = lig_rigid_gpu->atom_range[current][0];
 		end =	lig_rigid_gpu->atom_range[current][1];
 		for (int i = begin; i < end; i++) {
-			local_to_lab(m_coords_gpu->coords[i], lig_rigid_gpu->origin[current], &atoms[i].coords, lig_rigid_gpu->orientation_m[current]);
+			local_to_lab(m_coords_gpu->coords[i], lig_rigid_gpu->origin[current], atoms[i].coords, lig_rigid_gpu->orientation_m[current]);
 		}
 	}
 	/* ************* end branches_set_conf ************* */
 }
 
+__device__
 void p_eval_deriv(						float*		out,
 										int			type_pair_index,
 										float		r2,
-							__constant	p_cuda*		p_cuda_gpu,
+								p_cuda*		p_cuda_gpu,
 					const				float		epsilon_fl
 ) {
 	const float cutoff_sqr = p_cuda_gpu->m_cutoff_sqr;
 	if(r2 > cutoff_sqr) printf("\nkernel2: p_eval_deriv() ERROR!");
-	__constant p_m_data_cuda* tmp = &p_cuda_gpu->m_data[type_pair_index];
+	 p_m_data_cuda* tmp = &p_cuda_gpu->m_data[type_pair_index];
 	float r2_factored = tmp->factor * r2;
 	if (r2_factored + 1 >= SMOOTH_SIZE) printf("\nkernel2: p_eval_deriv() ERROR!");
 	int i1 = (int)(r2_factored);
@@ -721,7 +749,8 @@ void curl(float* e, float* deriv, float v, const float epsilon_fl) {
 	}
 }
 
-float eval_interacting_pairs_deriv(		__constant	p_cuda*			p_cuda_gpu,
+__device__
+float eval_interacting_pairs_deriv(			p_cuda*			p_cuda_gpu,
 									const				float			v,
 									const				lig_pairs_cuda*   pairs,
 									const			 	m_coords_cuda*		m_coords,
@@ -757,6 +786,7 @@ void product(float* res, const float*a,const float*b) {
 	res[2] = a[0] * b[1] - a[1] * b[0];
 }
 
+__device__
 void POT_deriv(	const					m_minus_forces* minus_forces,
 				const					rigid_cuda*		lig_rigid_gpu,
 				const					m_coords_cuda*		m_coords,
@@ -831,16 +861,16 @@ void POT_deriv(	const					m_minus_forces* minus_forces,
 	for (int k = 0; k < num_torsion; k++) g->lig_torsion[k] = torsion_derivative[k + 1];
 }
 
-
+__device__
 float m_eval_deriv(					output_type_cuda*		c,
 										change_cuda*			g,
 										m_cuda*				m_cuda_gpu,
-							__constant	p_cuda*				p_cuda_gpu,
-							__constant	ig_cuda*				ig_cuda_gpu,
+								p_cuda*				p_cuda_gpu,
+								ig_cuda*				ig_cuda_gpu,
 					const	float*				v,
 					const				float				epsilon_fl
 ) {
-	set(c, &m_cuda_gpu->ligand.rigid, m_cuda_gpu->m_coords.coords, m_cuda_gpu->atoms, m_cuda_gpu->m_num_movable_atoms, epsilon_fl);
+	set(c, &m_cuda_gpu->ligand.rigid, &m_cuda_gpu->m_coords, m_cuda_gpu->atoms, m_cuda_gpu->m_num_movable_atoms, epsilon_fl);
 
 	float e = ig_eval_deriv(	c,
 								g, 
@@ -884,6 +914,7 @@ void find_change_index_write(change_cuda* g, int index, float data) {
 	printf("\nKernel2:find_change_index_write() ERROR!"); /* Shouldn't be here */
 }
 
+__device__
 void minus_mat_vec_product(	const		matrix*		h,
 							const		change_cuda*	in,
 										change_cuda*  out
@@ -911,10 +942,10 @@ float scalar_product(	const	change_cuda*			a,
 	return tmp;
 }
 
-
+__device__
 float line_search(					 	m_cuda*				m_cuda_gpu,
-							__constant	p_cuda*				p_cuda_gpu,
-							__constant	ig_cuda*				ig_cuda_gpu,
+								p_cuda*				p_cuda_gpu,
+								ig_cuda*				ig_cuda_gpu,
 										int					n,
 					const				output_type_cuda*		x,
 					const				change_cuda*			g,
@@ -955,7 +986,7 @@ float line_search(					 	m_cuda*				m_cuda_gpu,
 	return alpha;
 }
 
-
+__device__
 bool bfgs_update(			matrix*			h,
 					const	change_cuda*		p,
 					const	change_cuda*		y,
@@ -987,12 +1018,12 @@ bool bfgs_update(			matrix*			h,
 }
 
 
-
+__device__
 void bfgs(					output_type_cuda*			x,
 								change_cuda*			g,
 								m_cuda*				m_cuda_gpu,
-					__constant	p_cuda*				p_cuda_gpu,
-					__constant	ig_cuda*				ig_cuda_gpu,
+						p_cuda*				p_cuda_gpu,
+						ig_cuda*				ig_cuda_gpu,
 			const	float*				hunt_cap,
 			const				float				epsilon_fl,
 			const				int					max_steps
@@ -1088,82 +1119,206 @@ void bfgs(					output_type_cuda*			x,
 
 /* Above based on quasi_newton.cpp */
 
-/* Below based on monte_carlo.cpp */
+/* Below is monte-carlo kernel, based on kernel.cl*/
 
-// put back results to vina
-std::vector<output_type> monte_carlo::cuda_to_vina(output_type_cuda result_ptr[], int exhaus) const {
-	std::vector<output_type> results_vina;
-	for (int i = 0; i < exhaus; i++) {
-		output_type_cuda tmp_cuda = result_ptr[i];
-		conf tmp_c;
-		tmp_c.ligands.resize(1);
-		// Position
-		for (int j = 0; j < 3; j++)
-			tmp_c.ligands[0].rigid.position[j] = tmp_cuda.position[j];
-		// Orientation
-		qt q(tmp_cuda.orientation[0], tmp_cuda.orientation[1], tmp_cuda.orientation[2], tmp_cuda.orientation[3]);
-		tmp_c.ligands[0].rigid.orientation = q;
-		output_type tmp_vina(tmp_c, tmp_cuda.e);
-		// torsion
-		for (int j = 0; j < tmp_cuda.lig_torsion_size; j++)tmp_vina.c.ligands[0].torsions.push_back(tmp_cuda.lig_torsion[j]);
-		// coords
-		for (int j = 0; j < MAX_NUM_OF_ATOMS; j++) {
-			vec v_tmp(tmp_cuda.coords[j][0], tmp_cuda.coords[j][1], tmp_cuda.coords[j][2]);
-			if (v_tmp[0] * v_tmp[1] * v_tmp[2] != 0) tmp_vina.coords.push_back(v_tmp);
+__device__
+void m_cuda_init_with_m_cuda(const m_cuda* m_cuda_old, m_cuda* m_cuda_new) {
+	for (int i = 0; i < MAX_NUM_OF_ATOMS; i++)m_cuda_new->atoms[i] = m_cuda_old->atoms[i];
+	m_cuda_new->m_coords = m_cuda_old->m_coords;
+	m_cuda_new->minus_forces = m_cuda_old->minus_forces;
+	m_cuda_new->ligand = m_cuda_old->ligand;
+	m_cuda_new->m_num_movable_atoms = m_cuda_old->m_num_movable_atoms;
+}
+
+
+__device__
+void get_heavy_atom_movable_coords(output_type_cuda* tmp, const m_cuda* m_cuda_gpu) {
+	int counter = 0;
+	for (int i = 0; i < m_cuda_gpu->m_num_movable_atoms; i++) {
+		if (m_cuda_gpu->atoms[i].types[0] != EL_TYPE_H) {
+			for (int j = 0; j < 3; j++)tmp->coords[counter][j] = m_cuda_gpu->m_coords.coords[i][j];
+			counter++;
 		}
-		results_vina.push_back(tmp_vina);
+		else {
+			// printf("\n kernel2: removed H atom coords in get_heavy_atom_movable_coords()!");
+		}
 	}
-	return results_vina;
+	/* assign 0 for others */
+	for (int i = counter; i < MAX_NUM_OF_ATOMS; i++) {
+		for (int j = 0; j < 3; j++)tmp->coords[i][j] = 0;
+	}
 }
 
-output_type monte_carlo::operator()(model& m, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, incrementable* increment_me, rng& generator) const {
-	output_container tmp;
-	this->operator()(m, tmp, p, ig, corner1, corner2, increment_me, generator); // call the version that produces the whole container
-	VINA_CHECK(!tmp.empty());
-	return tmp.front();
-}
-
-bool metropolis_accept(fl old_f, fl new_f, fl temperature, rng& generator) {
-	if(new_f < old_f) return true;
-	const fl acceptance_probability = std::exp((old_f - new_f) / temperature);
-	return random_fl(0, 1, generator) < acceptance_probability;
-}
-
-// out is sorted
-void monte_carlo::operator()(model& m, output_container& out, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, incrementable* increment_me, rng& generator) const {
-    int evalcount = 0;
-	vec authentic_v(1000, 1000, 1000); // FIXME? this is here to avoid max_fl/max_fl
-	conf_size s = m.get_size();
-	change g(s);
-	output_type tmp(s, 0);
-	tmp.c.randomize(corner1, corner2, generator);
-	fl best_e = max_fl;
-	quasi_newton quasi_newton_par;
-    quasi_newton_par.max_steps = local_steps;
-	VINA_U_FOR(step, global_steps) {
-		if(increment_me)
-			++(*increment_me);
-		if((max_evals > 0) & (evalcount > max_evals))
-			break;
-		output_type candidate = tmp;
-		mutate_conf(candidate.c, m, mutation_amplitude, generator);
-		quasi_newton_par(m, p, ig, candidate, g, hunt_cap, evalcount);
-		if(step == 0 || metropolis_accept(tmp.e, candidate.e, temperature, generator)) {
-			tmp = candidate;
-
-			m.set(tmp.c); // FIXME? useless?
-
-			// FIXME only for very promising ones
-			if(tmp.e < best_e || out.size() < num_saved_mins) {
-				quasi_newton_par(m, p, ig, tmp, g, authentic_v, evalcount);
-				m.set(tmp.c); // FIXME? useless?
-				tmp.coords = m.get_heavy_atom_movable_coords();
-				add_to_output_container(out, tmp, min_rmsd, num_saved_mins); // 20 - max size
-				if(tmp.e < best_e)
-					best_e = tmp.e;
+/* Bubble Sort */
+__device__
+void container_sort(out_container* out) {
+	output_type_cuda out_tmp;
+	for (int i = 0; i < out->current_size - 1; i++) {
+		for (int j = 0; j < out->current_size - 1 - i; j++) {
+			if (out->container[j].e > out->container[j + 1].e) {
+				output_type_cuda_init_with_output(&out_tmp, &out->container[j]);
+				output_type_cuda_init_with_output(&out->container[j], &out->container[j+1]);
+				output_type_cuda_init_with_output(&out->container[j + 1], &out_tmp);
 			}
 		}
 	}
-	VINA_CHECK(!out.empty());
-	VINA_CHECK(out.front().e <= out.back().e); // make sure the sorting worked in the correct order
+}
+
+__device__
+void add_to_output_container(out_container* out, const output_type_cuda* tmp) {
+	if (out->current_size <= MAX_CONTAINER_SIZE_EVERY_WI) {
+		out->container[out->current_size - 1] = *tmp;
+		out->current_size++;
+		container_sort(out);
+	}
+	else {
+		out->container[MAX_CONTAINER_SIZE_EVERY_WI - 1] = *tmp;
+		container_sort(out);
+	}
+}
+
+__device__
+float generate_n(const float* pi_map, const int step) {
+	return fabs(pi_map[step]) / M_PI;
+}
+
+__device__
+bool metropolis_accept(float old_f, float new_f, float temperature, float n) {
+	if (new_f < old_f)return true;
+	const float acceptance_probability = exp((old_f - new_f) / temperature);
+	bool res = n < acceptance_probability;
+	return n < acceptance_probability;
+}
+
+__device__
+void write_back(output_type_cuda* results, const output_type_cuda* best_out) {
+	for (int i = 0; i < 3; i++)results->position[i] = best_out->position[i];
+	for (int i = 0; i < 4; i++)results->orientation[i] = best_out->orientation[i];
+	for (int i = 0; i < MAX_NUM_OF_LIG_TORSION; i++)results->lig_torsion[i] = best_out->lig_torsion[i];
+	for (int i = 0; i < MAX_NUM_OF_FLEX_TORSION; i++)results->flex_torsion[i] = best_out->flex_torsion[i];
+	results->lig_torsion_size = best_out->lig_torsion_size;
+	results->e = best_out->e;
+	for (int i = 0; i < MAX_NUM_OF_ATOMS; i++) {
+		for (int j = 0; j < 3; j++) {
+			results->coords[i][j] = best_out->coords[i][j];
+		}
+	}
+}
+
+__global__
+void kernel(	m_cuda*			m_cuda_global,
+				ig_cuda*			ig_cuda_gpu,
+				p_cuda*			p_cuda_gpu,
+				const	float*			rand_molec_struc_vec_gpu,
+				float*			best_e_gpu,
+				int				bfgs_max_steps,
+							unsigned int	num_steps,
+							float			mutation_amplitude,
+				random_maps*	rand_maps_gpu,
+							float			epsilon_fl,
+					float*			hunt_cap_gpu,
+					float*			authentic_v_gpu,
+					output_type_cuda	results[],
+							int				search_depth,
+							int				e,
+							int				total_wi
+)
+{
+	/* OpenCL function */
+	// int gx = get_global_id(0);
+	// int gy = get_global_id(1);
+	// int gs = get_global_size(0);
+	// int gl = get_global_linear_id();
+	int gl = 0;
+
+
+
+	float best_e = INFINITY;
+
+	for (int gll = gl;
+			 gll < e;
+			 gll += total_wi
+		)
+	{
+		//if (gll % 100 == 0)printf("\nThread %d START", gll);
+
+		m_cuda m_cuda_gpu;
+		m_cuda_init_with_m_cuda(m_cuda_global, &m_cuda_gpu);
+
+
+		output_type_cuda tmp; // private memory, shared only in work item
+		change_cuda g;
+		output_type_cuda_init(&tmp, rand_molec_struc_vec_gpu + gll * (SIZE_OF_MOLEC_STRUC / sizeof(float)));
+		g.lig_torsion_size = tmp.lig_torsion_size;
+		// BFGS
+		output_type_cuda best_out;
+		output_type_cuda candidate;
+
+		for (int step = 0; step < search_depth; step++) {
+			output_type_cuda_init_with_output(&candidate, &tmp);
+
+			int map_index = (step + gll * search_depth) % MAX_NUM_OF_RANDOM_MAP;
+			mutate_conf_cuda(	map_index,
+							num_steps,
+							&candidate,
+							rand_maps_gpu->int_map,
+							rand_maps_gpu->sphere_map,
+							rand_maps_gpu->pi_map,
+							m_cuda_gpu.ligand.begin,
+							m_cuda_gpu.ligand.end,
+							m_cuda_gpu.atoms,
+							&m_cuda_gpu.m_coords,
+							m_cuda_gpu.ligand.rigid.origin[0],
+							epsilon_fl,
+							mutation_amplitude
+			);
+			
+			bfgs(	&candidate,
+					&g,
+					&m_cuda_gpu,
+					p_cuda_gpu,
+					ig_cuda_gpu,
+					hunt_cap_gpu,
+					epsilon_fl,
+					bfgs_max_steps
+			);
+			
+			float n = generate_n(rand_maps_gpu->pi_map, map_index);
+			
+			if (step == 0 || metropolis_accept(tmp.e, candidate.e, 1.2, n)) {
+
+				output_type_cuda_init_with_output(&tmp, &candidate);
+
+				set(&tmp, &m_cuda_gpu.ligand.rigid, &m_cuda_gpu.m_coords,
+					m_cuda_gpu.atoms, m_cuda_gpu.m_num_movable_atoms, epsilon_fl);
+				
+				if (tmp.e < best_e) {
+					bfgs(	&tmp,
+							&g,
+							&m_cuda_gpu,
+							p_cuda_gpu,
+							ig_cuda_gpu,
+							authentic_v_gpu,
+							epsilon_fl,
+							bfgs_max_steps
+					);
+					// set
+					if (tmp.e < best_e) {
+						set(&tmp, &m_cuda_gpu.ligand.rigid, &m_cuda_gpu.m_coords,
+							m_cuda_gpu.atoms, m_cuda_gpu.m_num_movable_atoms, epsilon_fl);
+
+						output_type_cuda_init_with_output(&best_out, &tmp);
+						get_heavy_atom_movable_coords(&best_out, &m_cuda_gpu); // get coords
+						best_e = tmp.e;
+					}
+
+				}
+			}
+			
+		}
+
+		// write the best conformation back to CPU
+		write_back(&results[gll], &best_out);
+		//if (gll % 100 == 0)printf("\nThread %d FINISH", gll);
+	}
 }
