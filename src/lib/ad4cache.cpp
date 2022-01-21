@@ -25,6 +25,19 @@
 
 namespace fs = boost::filesystem;
 
+float ad4cache::get_slope() const{
+	return this->m_slope;
+}
+
+// Attention: new gridding method
+std::vector<grid> ad4cache::get_grids() const{
+	return this->m_grids;
+}
+
+int ad4cache::get_atu() const{
+	return atom_type::AD;
+}
+
 std::string get_adtype_str(sz& t) {
 	switch(t) {
 		case AD_TYPE_C : return "C";

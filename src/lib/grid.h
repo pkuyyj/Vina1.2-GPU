@@ -48,10 +48,11 @@ public:
 	}
 	fl evaluate(const vec& location, fl slope, fl c)             const { return evaluate_aux(location, slope, c, NULL);   }
 	fl evaluate(const vec& location, fl slope, fl c, vec& deriv) const { return evaluate_aux(location, slope, c, &deriv); } // sets deriv
-private:
-    vec m_factor;
+	// add to public
+	vec m_factor;
     vec m_dim_fl_minus_1;
 
+private:
 	fl evaluate_aux(const vec& location, fl slope, fl v, vec* deriv) const; // sets *deriv if not NULL
 	friend class boost::serialization::access;
 	template<class Archive>

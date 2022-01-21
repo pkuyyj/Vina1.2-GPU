@@ -47,9 +47,11 @@ void doing(const std::string& str, int verbosity, int level) {
 
 
 void done(int verbosity, int level) {
+    printf("entering done\n");
     if(verbosity > level) {
         std::cout << "done.\n" << std::flush;
     }
+    printf("exiting done\n");
 }
 
 

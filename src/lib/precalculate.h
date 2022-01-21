@@ -116,9 +116,12 @@ public:
         init_from_smooth_fst(rs);
     };
     prv smooth; // [(e, dor)]
-private:
-    flv fast;
+    // add to public
     fl factor;
+    flv fast;
+private:
+
+
 };
 
 struct precalculate 
@@ -246,6 +249,11 @@ public:
         VINA_RANGE(t2, t1, m_data.dim())
         m_data(t1, t2).widen(rs, left, right);
     };
+    sz m_n;
+    fl m_factor;
+    
+    triangular_matrix<precalculate_element> m_data;
+
 private:
     flv calculate_rs() const{
         flv tmp(m_n, 0);
@@ -256,10 +264,8 @@ private:
 
     fl m_cutoff_sqr;
     fl m_max_cutoff_sqr;
-    sz m_n;
-    fl m_factor;
 
-    triangular_matrix<precalculate_element> m_data;
+
 };
 
 #endif

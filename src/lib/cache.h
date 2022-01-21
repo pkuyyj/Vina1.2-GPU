@@ -59,10 +59,16 @@ public:
     void write(const std::string& out_prefix, const szv& atom_types, const std::string& gpf_filename="NULL",
                const std::string& fld_filename="NULL", const std::string& receptor_filename="NULL");
 	void populate(const model& m, const precalculate& p, const szv& atom_types_needed);
+    // add for gpu
+    float get_slope() const;
+    std::vector<grid> get_grids() const;
+    int get_atu() const;
+    std::vector<grid> m_grids;
+    // std::vector<grid> grids; 
 private:
 	grid_dims m_gd;
 	fl m_slope; // does not get (de-)serialized
-	std::vector<grid> m_grids;
+	
 };
 
 #endif

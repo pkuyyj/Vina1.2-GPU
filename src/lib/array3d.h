@@ -41,7 +41,7 @@ inline sz checked_multiply(sz i, sz j, sz k) {
 template<typename T>
 class array3d {
 	sz m_i, m_j, m_k;
-	std::vector<T> m_data;
+	
 	friend class boost::serialization::access;
 	template<typename Archive>
 	void serialize(Archive& ar, const unsigned version) {
@@ -51,6 +51,7 @@ class array3d {
 		ar & m_data;
 	}
 public:
+	std::vector<T> m_data; // add to public
 	array3d() : m_i(0), m_j(0), m_k(0) {}
 	array3d(sz i, sz j, sz k) : m_i(i), m_j(j), m_k(k), m_data(checked_multiply(i, j, k)) {}
 	sz dim0() const { return m_i; }

@@ -24,6 +24,7 @@
 #include "coords.h"
 #include "mutate.h"
 #include "quasi_newton.h"
+// #include "monte_carlo.cu"
 
 output_type monte_carlo::operator()(model& m, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, incrementable* increment_me, rng& generator) const {
 	output_container tmp;
@@ -32,6 +33,8 @@ output_type monte_carlo::operator()(model& m, const precalculate_byatom& p, cons
 	return tmp.front();
 }
 
+#ifndef ENABLE_CUDA
+
 bool metropolis_accept(fl old_f, fl new_f, fl temperature, rng& generator) {
 	if(new_f < old_f) return true;
 	const fl acceptance_probability = std::exp((old_f - new_f) / temperature);
@@ -39,6 +42,7 @@ bool metropolis_accept(fl old_f, fl new_f, fl temperature, rng& generator) {
 }
 
 // out is sorted
+
 void monte_carlo::operator()(model& m, output_container& out, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, incrementable* increment_me, rng& generator) const {
     int evalcount = 0;
 	vec authentic_v(1000, 1000, 1000); // FIXME? this is here to avoid max_fl/max_fl
@@ -76,3 +80,4 @@ void monte_carlo::operator()(model& m, output_container& out, const precalculate
 	VINA_CHECK(!out.empty());
 	VINA_CHECK(out.front().e <= out.back().e); // make sure the sorting worked in the correct order
 }
+#endif

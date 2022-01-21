@@ -232,3 +232,20 @@ fl non_cache::eval_intra(model& m, fl v) const { // clean up
 	}
 	return e;
 }
+
+// add to make get_grids() work
+std::vector<grid> non_cache::get_grids()const { 
+	assert(false); // This function should not be called!
+	std::vector<grid> g;
+	return g;
+};
+
+int non_cache::get_atu()const {
+	assert(false); // This function should not be called!
+	return 0;
+}
+
+float non_cache::get_slope()const {
+	assert(false); // This function should not be called!
+	return 0;
+}

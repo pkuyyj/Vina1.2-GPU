@@ -72,9 +72,10 @@ public:
 
 template<typename T>
 class triangular_matrix {
-	std::vector<T> m_data;
+
 	sz m_dim;
 public:
+	std::vector<T> m_data; // add to public
 	sz index(sz i, sz j) const { return triangular_matrix_index(m_dim, i, j); }
 	sz index_permissive(sz i, sz j) const { return (i < j) ? index(i, j) : index(j, i); }
 	triangular_matrix() : m_dim(0) {}

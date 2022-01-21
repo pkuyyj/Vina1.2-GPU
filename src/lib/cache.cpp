@@ -433,6 +433,20 @@ void cache::write(const std::string& out_prefix, const szv& atom_types, const st
 	} // map atom type
 } // cache::write
 
+float cache::get_slope() const{
+	return this->m_slope;
+}
+
+// Attention: new gridding method
+std::vector<grid> cache::get_grids() const{
+	return this->m_grids;
+}
+
+int cache::get_atu() const{
+	return atom_type::XS;
+}
+
+
 void cache::populate(const model &m, const precalculate &p, const szv &atom_types_needed) {
 	szv needed;
 	bool got_C_H_already = false;

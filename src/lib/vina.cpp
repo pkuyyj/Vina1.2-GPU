@@ -924,9 +924,9 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 	sstm << "Performing docking (random seed: " << m_seed << ")";
 	doing(sstm.str(), m_verbosity, 0);
 	if (m_sf_choice == SF_VINA || m_sf_choice == SF_VINARDO) {
-		parallelmc(m_model, poses, m_precalculated_byatom,    m_grid, m_grid.corner1(), m_grid.corner2(), generator, m_progress_callback);
+		parallelmc(m_model, poses, m_precalculated_byatom,    m_grid, m_grid.corner1(), m_grid.corner2(), generator);
 	} else {
-		parallelmc(m_model, poses, m_precalculated_byatom, m_ad4grid, m_ad4grid.corner1(), m_ad4grid.corner2(), generator, m_progress_callback);
+		parallelmc(m_model, poses, m_precalculated_byatom, m_ad4grid, m_ad4grid.corner1(), m_ad4grid.corner2(), generator);
 	}
 	done(m_verbosity, 1);
 
@@ -934,6 +934,8 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 	poses = remove_redundant(poses, min_rmsd);
 
 	if (!poses.empty()) {
+		printf("vina: poses not empty\n");
+		// Core Dumped
 		// For the Vina scoring function, we take the intramolecular energy from the best pose
 		// the order must not change because of non-decreasing g (see paper), but we'll re-sort in case g is non strictly increasing
 		if (m_sf_choice == SF_VINA || m_sf_choice == SF_VINARDO) {
@@ -948,7 +950,6 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 				const fl slope = 1e6;
 				m_non_cache.slope = slope;
 				quasi_newton_par.max_steps = unsigned((25 + m_model.num_movable_atoms()) / 3);
-
 				VINA_FOR_IN(i, poses){
 					const fl slope_orig = m_non_cache.slope;
 					VINA_FOR(p, 5){
@@ -963,13 +964,11 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 					m_non_cache.slope = slope;
 				}
 			}
-
 			if (m_no_refine || !m_receptor_initialized)
 				intramolecular_energy = m_model.eval_intramolecular(m_precalculated_byatom, m_grid, authentic_v);
 			else
 				intramolecular_energy = m_model.eval_intramolecular(m_precalculated_byatom, m_non_cache, authentic_v);
 		}
-
 		VINA_FOR_IN(i, poses) {
 			if (m_verbosity > 1)
 				std::cout << "ENERGY FROM SEARCH: " << poses[i].e << "\n";

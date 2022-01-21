@@ -81,6 +81,7 @@ public:
 		} else {
 			m_cpu = cpu;
 		}
+		printf("m_cpu=%d\n", m_cpu); //debug
 
 		if (sf_name.compare("vina") == 0) {
 			m_sf_choice = SF_VINA;

@@ -1,3 +1,4 @@
+#pragma once
 // Macros below are shared in both device and host
 #define TOLERANCE 1e-16
 // kernel1 macros
@@ -10,15 +11,15 @@
 //kernel2 macros
 #define MAX_NUM_OF_LIG_TORSION 48
 #define MAX_NUM_OF_FLEX_TORSION 1
-#define MAX_NUM_OF_RIGID 48
+#define MAX_NUM_OF_RIGID 128
 #define MAX_NUM_OF_ATOMS 130 
 #define SIZE_OF_MOLEC_STRUC ((3+4+MAX_NUM_OF_LIG_TORSION+MAX_NUM_OF_FLEX_TORSION+ 1)*sizeof(float) )
 #define SIZE_OF_CHANGE_STRUC ((3+3+MAX_NUM_OF_LIG_TORSION+MAX_NUM_OF_FLEX_TORSION + 1)*sizeof(float))
-#define MAX_HESSIAN_MATRIX_SIZE ((6 +  MAX_NUM_OF_LIG_TORSION + MAX_NUM_OF_FLEX_TORSION)*(6 +  MAX_NUM_OF_LIG_TORSION + MAX_NUM_OF_FLEX_TORSION + 1) / 2)
+#define MAX_HESSIAN_MATRIX_D_SIZE ((6 +  MAX_NUM_OF_LIG_TORSION + MAX_NUM_OF_FLEX_TORSION)*(6 +  MAX_NUM_OF_LIG_TORSION + MAX_NUM_OF_FLEX_TORSION + 1) / 2)
 #define MAX_NUM_OF_LIG_PAIRS 4096
 #define MAX_NUM_OF_BFGS_STEPS 64
 #define MAX_NUM_OF_RANDOM_MAP 1000 // not too large (stack overflow!)
-#define GRIDS_SIZE 17
+#define GRIDS_SIZE 35 // larger than vina1.1, max(XS_TYPE_SIZE, AD_TYPE_SIZE + 2)
 
 #define MAX_NUM_OF_GRID_MI 128//55
 #define MAX_NUM_OF_GRID_MJ 128//55
@@ -36,24 +37,24 @@
 
 typedef struct {
 	float data[GRIDS_SIZE];
-} affinities_cuda;
+} affinities_cuda_t;
 
 typedef struct {
 	int types[4];
 	float coords[3];
-} atom_cuda;
+} atom_cuda_t;
 
 typedef struct {
-	atom_cuda atoms[MAX_NUM_OF_ATOMS];
-} grid_atoms_cuda;
-
-typedef struct {
-	float coords[MAX_NUM_OF_ATOMS][3];
-} m_coords_cuda;
+	atom_cuda_t atoms[MAX_NUM_OF_ATOMS];
+} grid_atoms_cuda_t;
 
 typedef struct {
 	float coords[MAX_NUM_OF_ATOMS][3];
-} m_minus_forces;
+} m_coords_cuda_t;
+
+typedef struct {
+	float coords[MAX_NUM_OF_ATOMS][3];
+} m_minus_forces_t;
 
 typedef struct  { // namely molec_struc
 	float position		[3];
@@ -63,7 +64,7 @@ typedef struct  { // namely molec_struc
 	float coords		[MAX_NUM_OF_ATOMS][3];
 	float lig_torsion_size;
 	float e;
-} output_type_cuda;
+} output_type_cuda_t;
 
 typedef struct  { // namely change_struc
 	float position		[3];
@@ -71,7 +72,7 @@ typedef struct  { // namely change_struc
 	float lig_torsion	[MAX_NUM_OF_LIG_TORSION];
 	float flex_torsion	[MAX_NUM_OF_FLEX_TORSION];
 	float lig_torsion_size;
-} change_cuda;
+} change_cuda_t;
 
 
 typedef struct { // depth-first order
@@ -88,35 +89,35 @@ typedef struct { // depth-first order
 	bool	children_map	[MAX_NUM_OF_RIGID][MAX_NUM_OF_RIGID]; // chidren_map[i][j] = true if node i's child is node j
 	int		num_children;
 	
-} rigid_cuda;
+} rigid_cuda_t;
 
 typedef struct {
 	int type_pair_index	[MAX_NUM_OF_LIG_PAIRS];
 	int a				[MAX_NUM_OF_LIG_PAIRS];
 	int b				[MAX_NUM_OF_LIG_PAIRS];
 	int num_pairs;
-} lig_pairs_cuda;
+} lig_pairs_cuda_t;
 
 typedef struct {
-	lig_pairs_cuda pairs;
-	rigid_cuda rigid;
+	lig_pairs_cuda_t pairs;
+	rigid_cuda_t rigid;
 	int begin;
 	int end;
-} ligand_cuda;
+} ligand_cuda_t;
 
 typedef struct {
 	int		int_map		[MAX_NUM_OF_RANDOM_MAP];
 	float	pi_map		[MAX_NUM_OF_RANDOM_MAP];
 	float	sphere_map	[MAX_NUM_OF_RANDOM_MAP][3];
-} random_maps;
+} random_maps_t;
 
 typedef struct {
-	atom_cuda atoms[MAX_NUM_OF_ATOMS];
-	m_coords_cuda m_coords;
-	m_minus_forces minus_forces;
-	ligand_cuda ligand;
+	atom_cuda_t atoms[MAX_NUM_OF_ATOMS];
+	m_coords_cuda_t m_coords;
+	m_minus_forces_t minus_forces;
+	ligand_cuda_t ligand;
 	int m_num_movable_atoms;
-} m_cuda;
+} m_cuda_t;
 
 typedef struct {
 	float m_init[3];
@@ -128,26 +129,26 @@ typedef struct {
 	int m_j;
 	int m_k;
 	float m_data [(MAX_NUM_OF_GRID_MI) * (MAX_NUM_OF_GRID_MJ) * (MAX_NUM_OF_GRID_MK)];
-} grid_cuda;
+} grid_cuda_t;
 
 typedef struct {
 	int atu;
 	float slope;
-	grid_cuda grids[GRIDS_SIZE];
-} ig_cuda;
+	grid_cuda_t grids[GRIDS_SIZE];
+} ig_cuda_t;
 
 typedef struct {
 	float fast[FAST_SIZE];
 	float smooth[SMOOTH_SIZE][2];
 	float factor;
-} p_m_data_cuda;
+} p_m_data_cuda_t;
 
 typedef struct {
 	float m_cutoff_sqr;
 	int n;
 	float factor;
-	p_m_data_cuda m_data[MAX_P_DATA_M_DATA_SIZE];
-} p_cuda;
+	p_m_data_cuda_t m_data[MAX_P_DATA_M_DATA_SIZE];
+} p_cuda_t;
 
 typedef struct  {
 	int max_steps;
@@ -166,6 +167,6 @@ typedef struct  {
 }variables_bfgs;
 
 typedef struct {
-	output_type_cuda container[MAX_CONTAINER_SIZE_EVERY_WI];
+	output_type_cuda_t container[MAX_CONTAINER_SIZE_EVERY_WI];
 	int current_size;
-}out_container;
+}output_container_cuda_t;

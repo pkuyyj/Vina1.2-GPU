@@ -167,6 +167,12 @@ public:
 
 	const atom& get_atom(const atom_index& i) const { return (i.in_grid ? grid_atoms[i.i] : atoms[i.i]); }
 	      atom& get_atom(const atom_index& i)       { return (i.in_grid ? grid_atoms[i.i] : atoms[i.i]); }
+	// add to public
+	vector_mutable<ligand> ligands;
+	atomv atoms; // movable, inflex
+	vecv coords;
+	vecv minus_forces;
+
 
 private:
 	friend struct cache;
@@ -205,12 +211,8 @@ private:
 	void initialize(const distance_type_matrix& mobility);
 	fl clash_penalty_aux(const interacting_pairs& pairs) const;
 
-	vecv coords;
-	vecv minus_forces;
-
 	atomv grid_atoms;
-	atomv atoms; // movable, inflex
-	vector_mutable<ligand> ligands;
+	
 	vector_mutable<residue> flex;
 	context flex_context;
 	interacting_pairs other_pairs; // INTRAmolecular interactions: flex_i - flex_j and flex_i - flex_i

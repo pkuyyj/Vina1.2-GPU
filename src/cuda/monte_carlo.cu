@@ -25,7 +25,15 @@
 #include "math.h"
 #include <vector>
 /* Original Include files */
+#include "monte_carlo.h"
 #include "coords.h"
+#include "mutate.h"
+#include "quasi_newton.h"
+#include "model.h"
+#include "precalculate.h"
+#include "cache.h"
+
+#define checkCUDA(ret) assert((ret) == cudaSuccess)
 
 
 __device__
@@ -48,7 +56,7 @@ __device__ void quaternion_increment(float* q, const float* rotation, float epsi
 __device__ void normalize_angle(float* x);
 
 __device__ 
-void output_type_cuda_init(output_type_cuda* out, const float* ptr) {
+void output_type_cuda_init(output_type_cuda_t* out, const float* ptr) {
 	for (int i = 0; i < 3; i++)out->position[i] = ptr[i];
 	for (int i = 0; i < 4; i++)out->orientation[i] = ptr[i + 3];
 	for (int i = 0; i < MAX_NUM_OF_LIG_TORSION; i++)out->lig_torsion[i] = ptr[i + 3 + 4];
@@ -58,7 +66,7 @@ void output_type_cuda_init(output_type_cuda* out, const float* ptr) {
 }
 
 __device__ 
-void output_type_cuda_init_with_output(output_type_cuda* out_new, const output_type_cuda* out_old) {
+void output_type_cuda_init_with_output(output_type_cuda_t* out_new, const output_type_cuda_t* out_old) {
 	for (int i = 0; i < 3; i++)out_new->position[i] = out_old->position[i];
 	for (int i = 0; i < 4; i++)out_new->orientation[i] = out_old->orientation[i];
 	for (int i = 0; i < MAX_NUM_OF_LIG_TORSION; i++)out_new->lig_torsion[i] = out_old->lig_torsion[i];
@@ -69,7 +77,7 @@ void output_type_cuda_init_with_output(output_type_cuda* out_new, const output_t
 }
 
 __device__
-void output_type_cuda_increment(output_type_cuda* x, const change_cuda* c, float factor, float epsilon_fl) {
+void output_type_cuda_increment(output_type_cuda_t* x, const change_cuda_t* c, float factor, float epsilon_fl) {
 	// position increment
 	for (int k = 0; k < 3; k++) x->position[k] += factor * c->position[k];
 	// orientation increment
@@ -182,8 +190,8 @@ float vec_distance_sqr(float* a, float* b) {
 __device__
 float gyration_radius(				int				m_lig_begin,
 									int				m_lig_end,
-						const		atom_cuda*		atoms,
-						const		m_coords_cuda*	m_coords_gpu,
+						const		atom_cuda_t*		atoms,
+						const		m_coords_cuda_t*	m_coords_gpu,
 						const		float*			m_lig_node_origin
 ) {
 	float acc = 0;
@@ -200,19 +208,15 @@ float gyration_radius(				int				m_lig_begin,
 }
 
 __device__
-void mutate_conf_cuda(const					int				step,
-					const					int				num_steps,
-											output_type_cuda*	c,
-									int*			random_int_map_gpu,
-									float			random_inside_sphere_map_gpu[][3],
-									float*			random_fl_pi_map_gpu,
-					const					int				m_lig_begin,
-					const					int				m_lig_end,
-					const					atom_cuda*		atoms,
-					const					m_coords_cuda*	m_coords_gpu,
-					const					float*			m_lig_node_origin_gpu,
-					const					float			epsilon_fl,
-					const					float			amplitude
+void mutate_conf_cuda(const	int	step, const	int	num_steps, output_type_cuda_t *c, int *random_int_map_gpu,
+			float random_inside_sphere_map_gpu[][3], float*	random_fl_pi_map_gpu,
+			const int	m_lig_begin,
+			const int	m_lig_end,
+			const atom_cuda_t* atoms,
+			const m_coords_cuda_t* m_coords_gpu,
+			const float*		m_lig_node_origin_gpu,
+			const float			epsilon_fl,
+			const float			amplitude
 ) {
 
 	int index = step; // global index (among all exhaus)
@@ -248,58 +252,58 @@ void mutate_conf_cuda(const					int				step,
 
 /* Below based on matrix.cpp */
 
-// symmetric matrix (only half of it are stored)
+// symmetric matrix_d (only half of it are stored)
 typedef struct {
-	float data[MAX_HESSIAN_MATRIX_SIZE];
+	float data[MAX_HESSIAN_MATRIX_D_SIZE];
 	int dim;
-}matrix;
+}matrix_d;
 
 __device__
-void matrix_init(matrix* m, int dim, float fill_data) {
+void matrix_d_init(matrix_d* m, int dim, float fill_data) {
 	m->dim = dim;
-	if ((dim * (dim + 1) / 2) > MAX_HESSIAN_MATRIX_SIZE)printf("\nnmatrix: matrix_init() ERROR!");
-	// ((dim * (dim + 1) / 2)*sizeof(float)); // symmetric matrix
+	if ((dim * (dim + 1) / 2) > MAX_HESSIAN_MATRIX_D_SIZE)printf("\nnmatrix_d: matrix_d_init() ERROR!");
+	// ((dim * (dim + 1) / 2)*sizeof(float)); // symmetric matrix_d
 	for (int i = 0; i < (dim * (dim + 1) / 2); i++)m->data[i] = fill_data;
-	for (int i = (dim * (dim + 1) / 2); i < MAX_HESSIAN_MATRIX_SIZE; i++)m->data[i] = 0;// Others will be 0
+	for (int i = (dim * (dim + 1) / 2); i < MAX_HESSIAN_MATRIX_D_SIZE; i++)m->data[i] = 0;// Others will be 0
 }
 
-// as rugular 3x3 matrix
+// as rugular 3x3 matrix_d
 __device__
-void mat_init(matrix* m, float fill_data) {
-	m->dim = 3; // fixed to 3x3 matrix
-	if (9 > MAX_HESSIAN_MATRIX_SIZE)printf("\nnmatrix: mat_init() ERROR!");
+void mat_init(matrix_d* m, float fill_data) {
+	m->dim = 3; // fixed to 3x3 matrix_d
+	if (9 > MAX_HESSIAN_MATRIX_D_SIZE)printf("\nnmatrix_d: mat_init() ERROR!");
 	for (int i = 0; i < 9; i++)m->data[i] = fill_data;
 }
 
 __device__
-void matrix_set_diagonal(matrix* m, float fill_data) {
+void matrix_d_set_diagonal(matrix_d* m, float fill_data) {
 	for (int i = 0; i < m->dim; i++) {
 		m->data[i + i * (i + 1) / 2] = fill_data;
 	}
 }
 
-// as regular matrix
+// as regular matrix_d
 __device__ 
-void matrix_set_element(matrix* m, int dim, int x, int y, float fill_data) {
+void matrix_d_set_element(matrix_d* m, int dim, int x, int y, float fill_data) {
 	m->data[x + y * dim] = fill_data;
 }
 
 __device__ 
-void matrix_set_element_tri(matrix* m, int x, int y, float fill_data) {
+void matrix_d_set_element_tri(matrix_d* m, int x, int y, float fill_data) {
 	m->data[x + y*(y+1)/2] = fill_data;
 }
 __device__ 
 int tri_index(int n, int i, int j) {
-	if (j >= n || i > j)printf("\nmatrix: tri_index ERROR!");
+	if (j >= n || i > j)printf("\nmatrix_d: tri_index ERROR!");
 	return i + j * (j + 1) / 2;
 }
 
 __device__ 
-int index_permissive(const matrix* m, int i, int j) {
+int index_permissive(const matrix_d* m, int i, int j) {
 	return (i < j) ? tri_index(m->dim, i, j) : tri_index(m->dim, j, i);
 }
 
-/* Above based on matrix.cpp */
+/* Above based on matrix_d.cpp */
 
 /* Below based on quasi_newton.cpp */
 
@@ -311,7 +315,7 @@ int index_permissive(const matrix* m, int i, int j) {
 
 
 __device__ 
-void change_cuda_init(change_cuda* g, const float* ptr) {
+void change_cuda_init(change_cuda_t* g, const float* ptr) {
 	for (int i = 0; i < 3; i++)g->position[i] = ptr[i];
 	for (int i = 0; i < 3; i++)g->orientation[i] = ptr[i + 3];
 	for (int i = 0; i < MAX_NUM_OF_LIG_TORSION; i++)g->lig_torsion[i] = ptr[i + 3 + 3];
@@ -320,7 +324,7 @@ void change_cuda_init(change_cuda* g, const float* ptr) {
 }
 
 __device__ 
-void change_cuda_init_with_change(change_cuda* g_new, const change_cuda* g_old) {
+void change_cuda_init_with_change(change_cuda_t* g_new, const change_cuda_t* g_old) {
 	for (int i = 0; i < 3; i++)g_new->position[i] = g_old->position[i];
 	for (int i = 0; i < 3; i++)g_new->orientation[i] = g_old->orientation[i];
 	for (int i = 0; i < MAX_NUM_OF_LIG_TORSION; i++)g_new->lig_torsion[i] = g_old->lig_torsion[i];
@@ -328,20 +332,14 @@ void change_cuda_init_with_change(change_cuda* g_new, const change_cuda* g_old) 
 	g_new->lig_torsion_size = g_old->lig_torsion_size;
 }
 
-__device__ 
-void output_type_cuda_init(output_type_cuda* out,  float* ptr); /* Function prototype in mutate_conf.cpp */
-
-__device__ 
-void output_type_cuda_init_with_output(output_type_cuda* out_new, const output_type_cuda* out_old); /* Function prototype in mutate_conf.cpp */
-
-void print_ouput_type(output_type_cuda* x, int torsion_size) {
+void print_ouput_type(output_type_cuda_t* x, int torsion_size) {
 	for (int i = 0; i < 3; i++)printf("\nx.position[%d] = %0.16f", i, x->position[i]);
 	for (int i = 0; i < 4; i++)printf("\nx.orientation[%d] = %0.16f", i, x->orientation[i]);
 	for (int i = 0; i < torsion_size; i++)printf("\n x.torsion[%d] = %0.16f", i, x->lig_torsion[i]);
 	printf("\n x.torsion_size = %f", x->lig_torsion_size);
 }
 
-void print_change(change_cuda* g, int torsion_size) {
+void print_change(change_cuda_t* g, int torsion_size) {
 	for (int i = 0; i < 3; i++)printf("\ng.position[%d] = %0.16f", i, g->position[i]);
 	for (int i = 0; i < 3; i++)printf("\ng.orientation[%d] = %0.16f", i, g->orientation[i]);
 	for (int i = 0; i < torsion_size; i++)printf("\ng.torsion[%d] = %0.16f", i, g->lig_torsion[i]);
@@ -372,7 +370,7 @@ float elementwise_product_sum(const float* a, const float* b) {
 }
 
 __device__ 
-float access_m_data( float* m_data, int m_i, int m_j, int i, int j, int k) {
+float access_m_data(float* m_data, int m_i, int m_j, int i, int j, int k) {
 	return m_data[i + m_i * (j + m_j * k)];
 }
 
@@ -399,7 +397,7 @@ void curl_without_deriv(float* e, float v, const float epsilon_fl) {
 }
 
 __device__
-float g_evaluate(				grid_cuda*	g,
+float g_evaluate(	grid_cuda_t*	g,
 					const				float*		m_coords,				/* double[3] */
 					const				float		slope,				/* double */
 					const				float		v,					/* double */
@@ -540,11 +538,11 @@ float g_evaluate(				grid_cuda*	g,
 }
 
 __device__
-float ig_eval_deriv(						output_type_cuda*		x,
-											change_cuda*			g, 
+float ig_eval_deriv(						output_type_cuda_t*		x,
+											change_cuda_t*			g, 
 						const				float				v,
-									ig_cuda*				ig_cuda_gpu,
-											m_cuda*				m_cuda_gpu,
+									ig_cuda_t*				ig_cuda_gpu,
+											m_cuda_t*				m_cuda_gpu,
 						const				float				epsilon_fl
 ) {
 	float e = 0;
@@ -584,20 +582,20 @@ void quaternion_to_r3(const float* q, float* orientation_m) {
 	const float dd = d * d;
 
 	/* Omit assert(eq(aa + bb + cc + dd, 1)); */
-	matrix tmp;
-	mat_init(&tmp, 0); /* matrix with fixed dimension 3(here we treate this as a regular matrix(not triangular matrix!)) */
+	matrix_d tmp;
+	mat_init(&tmp, 0); /* matrix_d with fixed dimension 3(here we treate this as a regular matrix_d(not triangular matrix_d!)) */
 
-	matrix_set_element(&tmp, 3, 0, 0,		(aa + bb - cc - dd)	);
-	matrix_set_element(&tmp, 3, 0, 1, 2 *	(-ad + bc)			);
-	matrix_set_element(&tmp, 3, 0, 2, 2 *	(ac + bd)			);
+	matrix_d_set_element(&tmp, 3, 0, 0,		(aa + bb - cc - dd)	);
+	matrix_d_set_element(&tmp, 3, 0, 1, 2 *	(-ad + bc)			);
+	matrix_d_set_element(&tmp, 3, 0, 2, 2 *	(ac + bd)			);
 							 
-	matrix_set_element(&tmp, 3, 1, 0, 2 *	(ad + bc)			);
-	matrix_set_element(&tmp, 3, 1, 1,		(aa - bb + cc - dd)	);
-	matrix_set_element(&tmp, 3, 1, 2, 2 *	(-ab + cd)			);
+	matrix_d_set_element(&tmp, 3, 1, 0, 2 *	(ad + bc)			);
+	matrix_d_set_element(&tmp, 3, 1, 1,		(aa - bb + cc - dd)	);
+	matrix_d_set_element(&tmp, 3, 1, 2, 2 *	(-ab + cd)			);
 							 
-	matrix_set_element(&tmp, 3, 2, 0, 2 *	(-ac + bd)			);
-	matrix_set_element(&tmp, 3, 2, 1, 2 *	(ab + cd)			);
-	matrix_set_element(&tmp, 3, 2, 2,		(aa - bb - cc + dd)	);
+	matrix_d_set_element(&tmp, 3, 2, 0, 2 *	(-ac + bd)			);
+	matrix_d_set_element(&tmp, 3, 2, 1, 2 *	(ab + cd)			);
+	matrix_d_set_element(&tmp, 3, 2, 2,		(aa - bb - cc + dd)	);
 
 	for (int i = 0; i < 9; i++) orientation_m[i] = tmp.data[i];
 }
@@ -654,10 +652,10 @@ void angle_to_quaternion2(				float*		out,
 }
 
 __device__
-void set(	const				output_type_cuda* x,
-								rigid_cuda*		lig_rigid_gpu,
-								m_coords_cuda*		m_coords_gpu,	
-			const				atom_cuda*		atoms,				
+void set(	const				output_type_cuda_t* x,
+								rigid_cuda_t*		lig_rigid_gpu,
+								m_coords_cuda_t*		m_coords_gpu,	
+			const				atom_cuda_t*		atoms,				
 			const				int				m_num_movable_atoms,
 			const				float			epsilon_fl
 ) {
@@ -717,12 +715,12 @@ __device__
 void p_eval_deriv(						float*		out,
 										int			type_pair_index,
 										float		r2,
-								p_cuda*		p_cuda_gpu,
+								p_cuda_t*		p_cuda_gpu,
 					const				float		epsilon_fl
 ) {
 	const float cutoff_sqr = p_cuda_gpu->m_cutoff_sqr;
 	if(r2 > cutoff_sqr) printf("\nkernel2: p_eval_deriv() ERROR!");
-	 p_m_data_cuda* tmp = &p_cuda_gpu->m_data[type_pair_index];
+	p_m_data_cuda_t* tmp = &p_cuda_gpu->m_data[type_pair_index];
 	float r2_factored = tmp->factor * r2;
 	if (r2_factored + 1 >= SMOOTH_SIZE) printf("\nkernel2: p_eval_deriv() ERROR!");
 	int i1 = (int)(r2_factored);
@@ -750,11 +748,11 @@ void curl(float* e, float* deriv, float v, const float epsilon_fl) {
 }
 
 __device__
-float eval_interacting_pairs_deriv(			p_cuda*			p_cuda_gpu,
+float eval_interacting_pairs_deriv(			p_cuda_t*			p_cuda_gpu,
 									const				float			v,
-									const				lig_pairs_cuda*   pairs,
-									const			 	m_coords_cuda*		m_coords,
-														m_minus_forces* minus_forces,
+									const				lig_pairs_cuda_t*   pairs,
+									const			 	m_coords_cuda_t*		m_coords,
+														m_minus_forces_t* minus_forces,
 									const				float			epsilon_fl
 ) {
 	float e = 0;
@@ -787,10 +785,10 @@ void product(float* res, const float*a,const float*b) {
 }
 
 __device__
-void POT_deriv(	const					m_minus_forces* minus_forces,
-				const					rigid_cuda*		lig_rigid_gpu,
-				const					m_coords_cuda*		m_coords,
-										change_cuda*		g
+void POT_deriv(	const					m_minus_forces_t* minus_forces,
+				const					rigid_cuda_t*		lig_rigid_gpu,
+				const					m_coords_cuda_t*		m_coords,
+										change_cuda_t*		g
 ) {
 	int num_torsion = lig_rigid_gpu->num_children;
 	int num_rigid = num_torsion + 1;
@@ -862,11 +860,11 @@ void POT_deriv(	const					m_minus_forces* minus_forces,
 }
 
 __device__
-float m_eval_deriv(					output_type_cuda*		c,
-										change_cuda*			g,
-										m_cuda*				m_cuda_gpu,
-								p_cuda*				p_cuda_gpu,
-								ig_cuda*				ig_cuda_gpu,
+float m_eval_deriv(					output_type_cuda_t*		c,
+										change_cuda_t*			g,
+										m_cuda_t*				m_cuda_gpu,
+								p_cuda_t*				p_cuda_gpu,
+								ig_cuda_t*				ig_cuda_gpu,
 					const	float*				v,
 					const				float				epsilon_fl
 ) {
@@ -895,7 +893,7 @@ float m_eval_deriv(					output_type_cuda*		c,
 
 
 __device__ 
-float find_change_index_read(const change_cuda* g, int index) {
+float find_change_index_read(const change_cuda_t* g, int index) {
 	if (index < 3)return g->position[index];
 	index -= 3;
 	if (index < 3)return g->orientation[index];
@@ -905,7 +903,7 @@ float find_change_index_read(const change_cuda* g, int index) {
 }
 
 __device__ 
-void find_change_index_write(change_cuda* g, int index, float data) {
+void find_change_index_write(change_cuda_t* g, int index, float data) {
 	if (index < 3) { g->position[index] = data; return; }
 	index -= 3;
 	if (index < 3) { g->orientation[index] = data; return; }
@@ -915,9 +913,9 @@ void find_change_index_write(change_cuda* g, int index, float data) {
 }
 
 __device__
-void minus_mat_vec_product(	const		matrix*		h,
-							const		change_cuda*	in,
-										change_cuda*  out
+void minus_mat_vec_product(	const		matrix_d*		h,
+							const		change_cuda_t*	in,
+										change_cuda_t*  out
 ) {
 	int n = h->dim;
 	for (int i = 0; i < n; i++) {
@@ -931,8 +929,8 @@ void minus_mat_vec_product(	const		matrix*		h,
 
 
 __device__ 
-float scalar_product(	const	change_cuda*			a,
-								const	change_cuda*			b,
+float scalar_product(	const	change_cuda_t*			a,
+								const	change_cuda_t*			b,
 								int							n
 ) {
 	float tmp = 0;
@@ -943,16 +941,16 @@ float scalar_product(	const	change_cuda*			a,
 }
 
 __device__
-float line_search(					 	m_cuda*				m_cuda_gpu,
-								p_cuda*				p_cuda_gpu,
-								ig_cuda*				ig_cuda_gpu,
+float line_search(					 	m_cuda_t*				m_cuda_gpu,
+								p_cuda_t*				p_cuda_gpu,
+								ig_cuda_t*				ig_cuda_gpu,
 										int					n,
-					const				output_type_cuda*		x,
-					const				change_cuda*			g,
+					const				output_type_cuda_t*		x,
+					const				change_cuda_t*			g,
 					const				float				f0,
-					const				change_cuda*			p,
-										output_type_cuda*		x_new,
-										change_cuda*			g_new,
+					const				change_cuda_t*			p,
+										output_type_cuda_t*		x_new,
+										change_cuda_t*			g_new,
 										float*				f1,
 					const				float				epsilon_fl,
 					const	float*				hunt_cap
@@ -987,9 +985,9 @@ float line_search(					 	m_cuda*				m_cuda_gpu,
 }
 
 __device__
-bool bfgs_update(			matrix*			h,
-					const	change_cuda*		p,
-					const	change_cuda*		y,
+bool bfgs_update(			matrix_d*			h,
+					const	change_cuda_t*		p,
+					const	change_cuda_t*		y,
 					const	float			alpha,
 					const	float			epsilon_fl
 ) {
@@ -997,7 +995,7 @@ bool bfgs_update(			matrix*			h,
 	const float yp = scalar_product(y, p, h->dim);
 	
 	if (alpha * yp < epsilon_fl) return false;
-	change_cuda minus_hy;
+	change_cuda_t minus_hy;
 	change_cuda_init_with_change(&minus_hy, y);
 	minus_mat_vec_product(h, y, &minus_hy);
 	const float yhy = -scalar_product(y, &minus_hy, h->dim);
@@ -1019,11 +1017,11 @@ bool bfgs_update(			matrix*			h,
 
 
 __device__
-void bfgs(					output_type_cuda*			x,
-								change_cuda*			g,
-								m_cuda*				m_cuda_gpu,
-						p_cuda*				p_cuda_gpu,
-						ig_cuda*				ig_cuda_gpu,
+void bfgs(					output_type_cuda_t*			x,
+								change_cuda_t*			g,
+								m_cuda_t*				m_cuda_gpu,
+						p_cuda_t*				p_cuda_gpu,
+						ig_cuda_t*				ig_cuda_gpu,
 			const	float*				hunt_cap,
 			const				float				epsilon_fl,
 			const				int					max_steps
@@ -1031,14 +1029,14 @@ void bfgs(					output_type_cuda*			x,
 {
 	int n = 3 + 3 + x->lig_torsion_size; /* the dimensions of matirx */
 
-	matrix h;
-	matrix_init(&h, n, 0);
-	matrix_set_diagonal(&h, 1);
+	matrix_d h;
+	matrix_d_init(&h, n, 0);
+	matrix_d_set_diagonal(&h, 1);
 
-	change_cuda g_new;
+	change_cuda_t g_new;
 	change_cuda_init_with_change(&g_new, g);
 
-	output_type_cuda x_new;
+	output_type_cuda_t x_new;
 	output_type_cuda_init_with_output(&x_new, x);
 	 
 	float f0 = m_eval_deriv(	x,
@@ -1052,12 +1050,12 @@ void bfgs(					output_type_cuda*			x,
 
 	float f_orig = f0;
 	/* Init g_orig, x_orig */
-	change_cuda g_orig;
+	change_cuda_t g_orig;
 	change_cuda_init_with_change(&g_orig, g);
-	output_type_cuda x_orig;
+	output_type_cuda_t x_orig;
 	output_type_cuda_init_with_output(&x_orig, x);
 	/* Init p */
-	change_cuda p;
+	change_cuda_t p;
 	change_cuda_init_with_change(&p, g);
 
 	float f_values[MAX_NUM_OF_BFGS_STEPS + 1];
@@ -1083,7 +1081,7 @@ void bfgs(					output_type_cuda*			x,
 											hunt_cap
 										);
 
-		change_cuda y;
+		change_cuda_t y;
 		change_cuda_init_with_change(&y, &g_new);
 		/* subtract_change */
 		for (int i = 0; i < n; i++) {
@@ -1099,7 +1097,7 @@ void bfgs(					output_type_cuda*			x,
 		if (step == 0) {
 			float yy = scalar_product(&y, &y, n);
 			if (fabs(yy) > epsilon_fl) {
-				matrix_set_diagonal(&h, alpha * scalar_product(&y, &p, n) / yy);
+				matrix_d_set_diagonal(&h, alpha * scalar_product(&y, &p, n) / yy);
 			}
 		}
 
@@ -1122,7 +1120,7 @@ void bfgs(					output_type_cuda*			x,
 /* Below is monte-carlo kernel, based on kernel.cl*/
 
 __device__
-void m_cuda_init_with_m_cuda(const m_cuda* m_cuda_old, m_cuda* m_cuda_new) {
+void m_cuda_init_with_m_cuda(const m_cuda_t* m_cuda_old, m_cuda_t* m_cuda_new) {
 	for (int i = 0; i < MAX_NUM_OF_ATOMS; i++)m_cuda_new->atoms[i] = m_cuda_old->atoms[i];
 	m_cuda_new->m_coords = m_cuda_old->m_coords;
 	m_cuda_new->minus_forces = m_cuda_old->minus_forces;
@@ -1132,7 +1130,7 @@ void m_cuda_init_with_m_cuda(const m_cuda* m_cuda_old, m_cuda* m_cuda_new) {
 
 
 __device__
-void get_heavy_atom_movable_coords(output_type_cuda* tmp, const m_cuda* m_cuda_gpu) {
+void get_heavy_atom_movable_coords(output_type_cuda_t* tmp, const m_cuda_t* m_cuda_gpu) {
 	int counter = 0;
 	for (int i = 0; i < m_cuda_gpu->m_num_movable_atoms; i++) {
 		if (m_cuda_gpu->atoms[i].types[0] != EL_TYPE_H) {
@@ -1150,32 +1148,32 @@ void get_heavy_atom_movable_coords(output_type_cuda* tmp, const m_cuda* m_cuda_g
 }
 
 /* Bubble Sort */
-__device__
-void container_sort(out_container* out) {
-	output_type_cuda out_tmp;
-	for (int i = 0; i < out->current_size - 1; i++) {
-		for (int j = 0; j < out->current_size - 1 - i; j++) {
-			if (out->container[j].e > out->container[j + 1].e) {
-				output_type_cuda_init_with_output(&out_tmp, &out->container[j]);
-				output_type_cuda_init_with_output(&out->container[j], &out->container[j+1]);
-				output_type_cuda_init_with_output(&out->container[j + 1], &out_tmp);
-			}
-		}
-	}
-}
+// __device__
+// void container_sort(output_container_cuda_t* out) {
+// 	output_type_cuda_t out_tmp;
+// 	for (int i = 0; i < out->current_size - 1; i++) {
+// 		for (int j = 0; j < out->current_size - 1 - i; j++) {
+// 			if (out->container[j].e > out->container[j + 1].e) {
+// 				output_type_cuda_init_with_output(&out_tmp, &out->container[j]);
+// 				output_type_cuda_init_with_output(&out->container[j], &out->container[j+1]);
+// 				output_type_cuda_init_with_output(&out->container[j + 1], &out_tmp);
+// 			}
+// 		}
+// 	}
+// }
 
-__device__
-void add_to_output_container(out_container* out, const output_type_cuda* tmp) {
-	if (out->current_size <= MAX_CONTAINER_SIZE_EVERY_WI) {
-		out->container[out->current_size - 1] = *tmp;
-		out->current_size++;
-		container_sort(out);
-	}
-	else {
-		out->container[MAX_CONTAINER_SIZE_EVERY_WI - 1] = *tmp;
-		container_sort(out);
-	}
-}
+// __device__
+// void add_to_output_container_cuda(output_container_cuda_t* out, const output_type_cuda_t* tmp) {
+// 	if (out->current_size <= MAX_CONTAINER_SIZE_EVERY_WI) {
+// 		out->container[out->current_size - 1] = *tmp;
+// 		out->current_size++;
+// 		container_sort(out);
+// 	}
+// 	else {
+// 		out->container[MAX_CONTAINER_SIZE_EVERY_WI - 1] = *tmp;
+// 		container_sort(out);
+// 	}
+// }
 
 __device__
 float generate_n(const float* pi_map, const int step) {
@@ -1191,7 +1189,7 @@ bool metropolis_accept(float old_f, float new_f, float temperature, float n) {
 }
 
 __device__
-void write_back(output_type_cuda* results, const output_type_cuda* best_out) {
+void write_back(output_type_cuda_t* results, const output_type_cuda_t* best_out) {
 	for (int i = 0; i < 3; i++)results->position[i] = best_out->position[i];
 	for (int i = 0; i < 4; i++)results->orientation[i] = best_out->orientation[i];
 	for (int i = 0; i < MAX_NUM_OF_LIG_TORSION; i++)results->lig_torsion[i] = best_out->lig_torsion[i];
@@ -1206,22 +1204,22 @@ void write_back(output_type_cuda* results, const output_type_cuda* best_out) {
 }
 
 __global__
-void kernel(	m_cuda*			m_cuda_global,
-				ig_cuda*			ig_cuda_gpu,
-				p_cuda*			p_cuda_gpu,
-				const	float*			rand_molec_struc_vec_gpu,
-				float*			best_e_gpu,
-				int				bfgs_max_steps,
-							unsigned int	num_steps,
-							float			mutation_amplitude,
-				random_maps*	rand_maps_gpu,
-							float			epsilon_fl,
-					float*			hunt_cap_gpu,
-					float*			authentic_v_gpu,
-					output_type_cuda	results[],
-							int				search_depth,
-							int				e,
-							int				total_wi
+void kernel(	m_cuda_t*			m_cuda_global,
+				ig_cuda_t*			ig_cuda_gpu,
+				p_cuda_t*			p_cuda_gpu,
+				float*				rand_molec_struc_gpu,
+				float*				best_e_gpu,
+				int					bfgs_max_steps,
+				unsigned int		num_steps,
+				float				mutation_amplitude,
+				random_maps_t*		rand_maps_gpu,
+				float				epsilon_fl,
+				float*				hunt_cap_gpu,
+				float*				authentic_v_gpu,
+				output_type_cuda_t*	results,
+				int					search_depth
+				// int					e,
+				// int					total_wi
 )
 {
 	/* OpenCL function */
@@ -1229,69 +1227,45 @@ void kernel(	m_cuda*			m_cuda_global,
 	// int gy = get_global_id(1);
 	// int gs = get_global_size(0);
 	// int gl = get_global_linear_id();
-	int gl = 0;
 
-
-
+	// CUDA function
+	// TODO
+	int gll = blockIdx.x * blockDim.x + threadIdx.x;
+	// int gll = 0;
 	float best_e = INFINITY;
 
-	for (int gll = gl;
-			 gll < e;
-			 gll += total_wi
-		)
+	do
 	{
 		//if (gll % 100 == 0)printf("\nThread %d START", gll);
 
-		m_cuda m_cuda_gpu;
+		m_cuda_t m_cuda_gpu;
 		m_cuda_init_with_m_cuda(m_cuda_global, &m_cuda_gpu);
 
-
-		output_type_cuda tmp; // private memory, shared only in work item
-		change_cuda g;
-		output_type_cuda_init(&tmp, rand_molec_struc_vec_gpu + gll * (SIZE_OF_MOLEC_STRUC / sizeof(float)));
+		output_type_cuda_t tmp; // private memory, shared only in work item
+		change_cuda_t g;
+		output_type_cuda_init(&tmp, rand_molec_struc_gpu + gll * (SIZE_OF_MOLEC_STRUC / sizeof(float)));
 		g.lig_torsion_size = tmp.lig_torsion_size;
 		// BFGS
-		output_type_cuda best_out;
-		output_type_cuda candidate;
+		output_type_cuda_t best_out;
+		output_type_cuda_t candidate;
 
 		for (int step = 0; step < search_depth; step++) {
 			output_type_cuda_init_with_output(&candidate, &tmp);
 
 			int map_index = (step + gll * search_depth) % MAX_NUM_OF_RANDOM_MAP;
-			mutate_conf_cuda(	map_index,
-							num_steps,
-							&candidate,
-							rand_maps_gpu->int_map,
-							rand_maps_gpu->sphere_map,
-							rand_maps_gpu->pi_map,
-							m_cuda_gpu.ligand.begin,
-							m_cuda_gpu.ligand.end,
-							m_cuda_gpu.atoms,
-							&m_cuda_gpu.m_coords,
-							m_cuda_gpu.ligand.rigid.origin[0],
-							epsilon_fl,
-							mutation_amplitude
-			);
+			mutate_conf_cuda(map_index, num_steps, &candidate, rand_maps_gpu->int_map, rand_maps_gpu->sphere_map,
+				rand_maps_gpu->pi_map, m_cuda_gpu.ligand.begin, m_cuda_gpu.ligand.end, m_cuda_gpu.atoms, 
+				&m_cuda_gpu.m_coords, m_cuda_gpu.ligand.rigid.origin[0], epsilon_fl, mutation_amplitude);
 			
-			bfgs(	&candidate,
-					&g,
-					&m_cuda_gpu,
-					p_cuda_gpu,
-					ig_cuda_gpu,
-					hunt_cap_gpu,
-					epsilon_fl,
-					bfgs_max_steps
-			);
+			bfgs(&candidate, &g, &m_cuda_gpu, p_cuda_gpu, ig_cuda_gpu, hunt_cap_gpu, epsilon_fl, bfgs_max_steps);
 			
 			float n = generate_n(rand_maps_gpu->pi_map, map_index);
 			
 			if (step == 0 || metropolis_accept(tmp.e, candidate.e, 1.2, n)) {
 
 				output_type_cuda_init_with_output(&tmp, &candidate);
-
 				set(&tmp, &m_cuda_gpu.ligand.rigid, &m_cuda_gpu.m_coords,
 					m_cuda_gpu.atoms, m_cuda_gpu.m_num_movable_atoms, epsilon_fl);
-				
 				if (tmp.e < best_e) {
 					bfgs(	&tmp,
 							&g,
@@ -1318,7 +1292,351 @@ void kernel(	m_cuda*			m_cuda_global,
 		}
 
 		// write the best conformation back to CPU
-		write_back(&results[gll], &best_out);
+		write_back(results, &best_out);
 		//if (gll % 100 == 0)printf("\nThread %d FINISH", gll);
 	}
+	while(0);
 }
+
+/* Above based on kernel.cl */
+
+/* Below based on monte-carlo.cpp */
+
+#ifdef ENABLE_CUDA
+
+output_type monte_carlo::cuda_to_vina(output_type_cuda_t &results) const {
+	printf("entering cuda_to_vina\n");
+	printf("%f", results.e);
+	conf tmp_c;
+	tmp_c.ligands.resize(1);
+	// Position
+	for (int j = 0; j < 3; j++)tmp_c.ligands[0].rigid.position[j] = results.position[j];
+	// Orientation
+	qt q(results.orientation[0], results.orientation[1], results.orientation[2], results.orientation[3]);
+	tmp_c.ligands[0].rigid.orientation = q;
+	output_type result_vina(tmp_c, results.e);
+	// torsion
+	for (int j = 0; j < results.lig_torsion_size; j++)result_vina.c.ligands[0].torsions.push_back(results.lig_torsion[j]);
+	// coords
+	for (int j = 0; j < MAX_NUM_OF_ATOMS; j++) {
+		vec v_tmp(results.coords[j][0], results.coords[j][1], results.coords[j][2]);
+		if (v_tmp[0] * v_tmp[1] * v_tmp[2] != 0) result_vina.coords.push_back(v_tmp);
+	}
+	return result_vina;
+}
+
+
+void monte_carlo::operator()(model& m, output_container& out, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, rng& generator) const {
+	
+	/* Definitions from vina1.2 */
+	printf("entering CUDA monte_carlo search\n"); //debug
+	
+	int evalcount = 0;
+	vec authentic_v(1000, 1000, 1000); // FIXME? this is here to avoid max_fl/max_fl
+	conf_size s = m.get_size();
+	change g(s);
+	output_type tmp(s, 0);
+
+	// tmp.c.randomize(corner1, corner2, generator); // should be moved to gpu
+	// fl best_e = max_fl; // should be moved to gpu
+	quasi_newton quasi_newton_par;
+    const int quasi_newton_par_max_steps = local_steps; // no need to decrease step
+
+	/* Allocate CPU memory and define new data structure */
+	printf("Allocating CPU memory\n"); //debug
+	m_cuda_t m_cuda;
+	assert(m.atoms.size() < MAX_NUM_OF_ATOMS);
+
+	for (int i = 0; i < m.atoms.size(); i++) {
+		m_cuda.atoms[i].types[0] = m.atoms[i].el;// To store 4 atoms types (el, ad, xs, sy)
+		m_cuda.atoms[i].types[1] = m.atoms[i].ad;
+		m_cuda.atoms[i].types[2] = m.atoms[i].xs;
+		m_cuda.atoms[i].types[3] = m.atoms[i].sy;
+		for (int j = 0; j < 3; j++) {
+			m_cuda.atoms[i].coords[j] = m.atoms[i].coords[j];// To store atom coords
+		}
+	}
+
+
+	// To store atoms coords
+	for (int i = 0; i < m.coords.size(); i++) {
+		for (int j = 0; j < 3; j++) {
+			m_cuda.m_coords.coords[i][j] = m.coords[i].data[j];
+		}
+	}
+
+	//To store minus forces
+	for (int i = 0; i < m.coords.size(); i++) {
+		for (int j = 0; j < 3; j++) {
+			m_cuda.minus_forces.coords[i][j] = m.minus_forces[i].data[j];
+		}
+	}
+
+    // Preparing ligand data
+	printf("prepare ligand data\n");
+	assert(m.num_other_pairs() == 0); // m.other_paris is not supported!
+	assert(m.ligands.size() == 1); // Only one ligand supported!
+	m_cuda.ligand.pairs.num_pairs = m.ligands[0].pairs.size();
+	for (int i = 0; i < m_cuda.ligand.pairs.num_pairs; i++) {
+		m_cuda.ligand.pairs.type_pair_index[i]	= m.ligands[0].pairs[i].type_pair_index;
+		m_cuda.ligand.pairs.a[i]					= m.ligands[0].pairs[i].a;
+		m_cuda.ligand.pairs.b[i]					= m.ligands[0].pairs[i].b;
+	}
+	m_cuda.ligand.begin = m.ligands[0].begin; // 0
+	m_cuda.ligand.end = m.ligands[0].end; // 29
+	ligand m_ligand = m.ligands[0]; // Only support one ligand 
+	assert(m_ligand.end < MAX_NUM_OF_ATOMS);
+
+	// Store root node
+	m_cuda.ligand.rigid.atom_range[0][0] = m_ligand.node.begin;
+	m_cuda.ligand.rigid.atom_range[0][1] = m_ligand.node.end;
+	for (int i = 0; i < 3; i++) m_cuda.ligand.rigid.origin[0][i] = m_ligand.node.get_origin()[i];
+	for (int i = 0; i < 9; i++) m_cuda.ligand.rigid.orientation_m[0][i] = m_ligand.node.get_orientation_m().data[i];
+	m_cuda.ligand.rigid.orientation_q[0][0] = m_ligand.node.orientation().R_component_1();
+	m_cuda.ligand.rigid.orientation_q[0][1] = m_ligand.node.orientation().R_component_2();
+	m_cuda.ligand.rigid.orientation_q[0][2] = m_ligand.node.orientation().R_component_3();
+	m_cuda.ligand.rigid.orientation_q[0][3] = m_ligand.node.orientation().R_component_4();
+	for (int i = 0; i < 3; i++) {m_cuda.ligand.rigid.axis[0][i] = 0;m_cuda.ligand.rigid.relative_axis[0][i] = 0;m_cuda.ligand.rigid.relative_origin[0][i] = 0;}
+
+	// Store children nodes (in depth-first order)
+	printf("store children nodes\n"); //debug
+
+	struct tmp_struct { 
+		int start_index = 0;
+		int parent_index = 0;
+		void store_node(tree<segment>& child_ptr, rigid_cuda_t& rigid) {
+			start_index++; // start with index 1, index 0 is root node
+			rigid.parent[start_index] = parent_index;
+			rigid.atom_range[start_index][0] = child_ptr.node.begin;
+			rigid.atom_range[start_index][1] = child_ptr.node.end;
+			for (int i = 0; i < 9; i++) rigid.orientation_m[start_index][i] = child_ptr.node.get_orientation_m().data[i];
+			rigid.orientation_q[start_index][0] = child_ptr.node.orientation().R_component_1();
+			rigid.orientation_q[start_index][1] = child_ptr.node.orientation().R_component_2();
+			rigid.orientation_q[start_index][2] = child_ptr.node.orientation().R_component_3();
+			rigid.orientation_q[start_index][3] = child_ptr.node.orientation().R_component_4();
+			for (int i = 0; i < 3; i++) {
+				rigid.origin[start_index][i] = child_ptr.node.get_origin()[i];
+				rigid.axis[start_index][i] = child_ptr.node.get_axis()[i];
+				rigid.relative_axis[start_index][i] = child_ptr.node.relative_axis[i];
+				rigid.relative_origin[start_index][i] = child_ptr.node.relative_origin[i];
+			}
+			if (child_ptr.children.size() == 0) return;
+			else {
+				assert(start_index < MAX_NUM_OF_RIGID);
+				int parent_index_tmp = start_index;
+				for (int i = 0; i < child_ptr.children.size(); i++) {
+					this->parent_index = parent_index_tmp; // Update parent index
+					this->store_node(child_ptr.children[i], rigid);
+				}
+			}
+		}
+	};
+	tmp_struct ts;
+	for (int i = 0; i < m_ligand.children.size(); i++) {
+		ts.parent_index = 0; // Start a new branch, whose parent is 0
+		ts.store_node(m_ligand.children[i], m_cuda.ligand.rigid);
+	}
+	m_cuda.ligand.rigid.num_children = ts.start_index;
+
+	// set children_map
+	printf("set children map\n"); //debug
+	for (int i = 0; i < MAX_NUM_OF_RIGID; i++)
+		for (int j = 0; j < MAX_NUM_OF_RIGID; j++)
+			m_cuda.ligand.rigid.children_map[i][j] = false;
+	printf("1"); //debug
+	for (int i = 1; i < m_cuda.ligand.rigid.num_children + 1; i++) {
+		int parent_index = m_cuda.ligand.rigid.parent[i];
+		m_cuda.ligand.rigid.children_map[parent_index][i] = true;
+	}
+	m_cuda.m_num_movable_atoms = m.num_movable_atoms();
+	size_t m_cuda_size = sizeof(m_cuda);
+
+    // Preparing ig related data
+	printf("Preparing ig related data\n"); //debug
+	ig_cuda_t* ig_cuda_ptr = (ig_cuda_t*)malloc(sizeof(ig_cuda_t));
+	ig_cuda_ptr->atu = ig.get_atu(); // atu
+	ig_cuda_ptr->slope = ig.get_slope(); // slope
+	std::vector<grid> tmp_grids = ig.get_grids();
+	int grid_size = tmp_grids.size();
+	assert(GRIDS_SIZE == grid_size); // grid_size has to be 17
+
+	printf("2,%d", grid_size);
+	for (int i = 0; i < grid_size; i++) {
+		// printf("i=%d\n",i); //debug
+		for (int j = 0; j < 3; j++) {
+			ig_cuda_ptr->grids[i].m_init[j] = tmp_grids[i].m_init[j];
+			ig_cuda_ptr->grids[i].m_factor[j] = tmp_grids[i].m_factor[j];
+			ig_cuda_ptr->grids[i].m_dim_fl_minus_1[j] = tmp_grids[i].m_dim_fl_minus_1[j];
+			ig_cuda_ptr->grids[i].m_factor_inv[j] = tmp_grids[i].m_factor_inv[j];
+		}
+		if (tmp_grids[i].m_data.dim0() != 0) {
+			ig_cuda_ptr->grids[i].m_i = tmp_grids[i].m_data.dim0(); assert(MAX_NUM_OF_GRID_MI >= ig_cuda_ptr->grids[i].m_i);
+			ig_cuda_ptr->grids[i].m_j = tmp_grids[i].m_data.dim1(); assert(MAX_NUM_OF_GRID_MJ >= ig_cuda_ptr->grids[i].m_j);
+			ig_cuda_ptr->grids[i].m_k = tmp_grids[i].m_data.dim2(); assert(MAX_NUM_OF_GRID_MK >= ig_cuda_ptr->grids[i].m_k);
+
+			for (int j = 0; j < ig_cuda_ptr->grids[i].m_i * ig_cuda_ptr->grids[i].m_j * ig_cuda_ptr->grids[i].m_k; j++) {
+				ig_cuda_ptr->grids[i].m_data[j] = tmp_grids[i].m_data.m_data[j];
+			}
+		}
+		else {
+			ig_cuda_ptr->grids[i].m_i = 0;
+			ig_cuda_ptr->grids[i].m_j = 0;
+			ig_cuda_ptr->grids[i].m_k = 0;
+		}
+	}
+	size_t ig_cuda_size = sizeof(ig_cuda_t);
+	
+	// Generating random ligand structures
+	printf("Generating random ligand structures\n"); //debug
+	output_type_cuda_t* rand_molec_struc; 
+	// rand_molec_struc_vec.resize(thread);
+	rand_molec_struc = (output_type_cuda_t*)malloc(sizeof(output_type_cuda_t));
+
+	int lig_torsion_size = tmp.c.ligands[0].torsions.size();
+	int flex_torsion_size; 
+	if (tmp.c.flex.size() != 0) flex_torsion_size = tmp.c.flex[0].torsions.size(); 
+	else flex_torsion_size = 0;
+	vec uniform_data;
+	
+	tmp.c.randomize(corner1, corner2, generator); // generate a random structure
+	for (int j = 0; j < 3; j++) rand_molec_struc->position[j] = tmp.c.ligands[0].rigid.position[j];
+	assert(lig_torsion_size < MAX_NUM_OF_LIG_TORSION);
+	for (int j = 0; j < lig_torsion_size; j++) rand_molec_struc->lig_torsion[j] = tmp.c.ligands[0].torsions[j];// Only support one ligand
+	assert(flex_torsion_size < MAX_NUM_OF_FLEX_TORSION);
+	for (int j = 0; j < flex_torsion_size; j++) rand_molec_struc->flex_torsion[j] = tmp.c.flex[0].torsions[j];// Only support one flex
+
+	rand_molec_struc->orientation[0] = (float)tmp.c.ligands[0].rigid.orientation.R_component_1();
+	rand_molec_struc->orientation[1] = (float)tmp.c.ligands[0].rigid.orientation.R_component_2();
+	rand_molec_struc->orientation[2] = (float)tmp.c.ligands[0].rigid.orientation.R_component_3();
+	rand_molec_struc->orientation[3] = (float)tmp.c.ligands[0].rigid.orientation.R_component_4();
+
+	rand_molec_struc->lig_torsion_size = lig_torsion_size;
+
+
+    // Preaparing p related data
+	printf("Preaparing p related data\n"); //debug
+	p_cuda_t p_cuda;
+	p_cuda.m_cutoff_sqr = p.cutoff_sqr();
+	p_cuda.factor = p.m_factor;
+	p_cuda.n = p.m_n;
+	assert(MAX_P_DATA_M_DATA_SIZE > p.m_data.m_data.size());
+	for (int i = 0; i < p.m_data.m_data.size(); i++) {
+		p_cuda.m_data[i].factor = p.m_data.m_data[i].factor;
+		assert(FAST_SIZE == p.m_data.m_data[i].fast.size());
+		assert(SMOOTH_SIZE == p.m_data.m_data[i].smooth.size());
+		for (int j = 0; j < FAST_SIZE; j++) {
+			p_cuda.m_data[i].fast[j] = p.m_data.m_data[i].fast[j];
+		}
+		for (int j = 0; j < SMOOTH_SIZE; j++) {
+			p_cuda.m_data[i].smooth[j][0] = p.m_data.m_data[i].smooth[j].first;
+			p_cuda.m_data[i].smooth[j][1] = p.m_data.m_data[i].smooth[j].second;
+		}
+	}
+	size_t p_cuda_size = sizeof(p_cuda_t);
+
+	// Generate random maps 
+	random_maps_t* rand_maps = (random_maps_t*)malloc(sizeof(random_maps_t));
+	for (int i = 0; i < MAX_NUM_OF_RANDOM_MAP; i++) {
+		rand_maps->int_map[i] = random_int(0, int(lig_torsion_size), generator);
+		rand_maps->pi_map[i] = random_fl(-pi, pi, generator);
+	}
+	for (int i = 0; i < MAX_NUM_OF_RANDOM_MAP; i++) {
+		vec rand_coords = random_inside_sphere(generator);
+		for (int j = 0; j < 3 ; j ++) {
+			rand_maps->sphere_map[i][j] = rand_coords[j];
+		}
+	}
+	size_t rand_maps_size = sizeof(random_maps_t);
+
+	fl hunt_cap_float[3] = {hunt_cap[0], hunt_cap[1], hunt_cap[2]};
+	float authentic_v_float[3] = { authentic_v[0],authentic_v[1], authentic_v[2] };
+	float mutation_amplitude_float = mutation_amplitude;
+	float epsilon_fl_float = epsilon_fl;
+	// int	total_wi = max_wi_size[0] * max_wi_size[1];
+
+	/* Allocate GPU memory */
+	printf("Allocating GPU memory\n");
+	// rand_molec_struc_gpu
+	float *rand_molec_struc_gpu;
+	checkCUDA(cudaMalloc(&rand_molec_struc_gpu, SIZE_OF_MOLEC_STRUC));
+	std::vector<float> pos(rand_molec_struc->position, rand_molec_struc->position + 3);
+	std::vector<float> ori(rand_molec_struc->orientation, rand_molec_struc->orientation + 4);
+	std::vector<float> lig_tor(rand_molec_struc->lig_torsion, rand_molec_struc->lig_torsion + MAX_NUM_OF_LIG_TORSION);
+	std::vector<float> flex_tor(rand_molec_struc->flex_torsion, rand_molec_struc->flex_torsion + MAX_NUM_OF_FLEX_TORSION);
+	float lig_tor_size = rand_molec_struc->lig_torsion_size;
+	checkCUDA(cudaMemcpy(rand_molec_struc_gpu, pos.data(), pos.size() * sizeof(float), cudaMemcpyHostToDevice));
+	checkCUDA(cudaMemcpy(rand_molec_struc_gpu + pos.size(), ori.data(), ori.size() * sizeof(float), cudaMemcpyHostToDevice));
+	checkCUDA(cudaMemcpy(rand_molec_struc_gpu + pos.size() + ori.size(), lig_tor.data(), lig_tor.size() * sizeof(float), cudaMemcpyHostToDevice));
+	checkCUDA(cudaMemcpy(rand_molec_struc_gpu + pos.size() + ori.size() + MAX_NUM_OF_LIG_TORSION, flex_tor.data(), 
+		flex_tor.size() * sizeof(float), cudaMemcpyHostToDevice));
+	checkCUDA(cudaMemcpy(rand_molec_struc_gpu + pos.size() + ori.size() + MAX_NUM_OF_LIG_TORSION + MAX_NUM_OF_FLEX_TORSION, 
+		&lig_tor_size, sizeof(float), cudaMemcpyHostToDevice));
+	// best_e_gpu
+	float *best_e_gpu;
+	checkCUDA(cudaMalloc(&best_e_gpu, sizeof(float)));
+	checkCUDA(cudaMemcpy(best_e_gpu, &max_fl, sizeof(float), cudaMemcpyHostToDevice));
+	// rand_maps_gpu
+	random_maps_t *rand_maps_gpu;
+	checkCUDA(cudaMalloc(&rand_maps_gpu, rand_maps_size));
+	checkCUDA(cudaMemcpy(rand_maps_gpu, rand_maps, rand_maps_size, cudaMemcpyHostToDevice));
+	// hunt_cap_gpu
+	float *hunt_cap_gpu;
+	checkCUDA(cudaMalloc(&hunt_cap_gpu, 3 * sizeof(float)));
+	checkCUDA(cudaMemcpy(hunt_cap_gpu, hunt_cap_float, 3 * sizeof(float), cudaMemcpyHostToDevice));
+	// Preparing m related data
+	m_cuda_t* m_cuda_gpu;
+	checkCUDA(cudaMalloc(&m_cuda_gpu, m_cuda_size));
+	checkCUDA(cudaMemcpy(m_cuda_gpu, &m_cuda, m_cuda_size, cudaMemcpyHostToDevice));
+	// Preparing p related data
+	p_cuda_t *p_cuda_gpu;
+	checkCUDA(cudaMalloc(&p_cuda_gpu, p_cuda_size));
+	checkCUDA(cudaMemcpy(p_cuda_gpu, &p_cuda, p_cuda_size, cudaMemcpyHostToDevice));
+	// Preparing ig related data (cache related data)
+	ig_cuda_t *ig_cuda_gpu;
+	checkCUDA(cudaMalloc(&ig_cuda_gpu, ig_cuda_size));
+	checkCUDA(cudaMemcpy(ig_cuda_gpu, &ig_cuda_gpu, ig_cuda_size, cudaMemcpyHostToDevice));
+	float *authentic_v_gpu;
+	checkCUDA(cudaMalloc(&authentic_v_gpu, sizeof(authentic_v_float)));
+	checkCUDA(cudaMemcpy(authentic_v_gpu, &authentic_v_float, sizeof(authentic_v_float), cudaMemcpyHostToDevice));
+	// Preparing result data
+	output_type_cuda_t *results_gpu;
+	checkCUDA(cudaMalloc(&results_gpu, sizeof(output_type_cuda_t)));
+	
+	/* Launch kernel */
+	printf("launch kernel\n");
+	kernel<<<1,1>>>(m_cuda_gpu, ig_cuda_gpu, p_cuda_gpu, rand_molec_struc_gpu,
+		best_e_gpu, quasi_newton_par_max_steps, global_steps, mutation_amplitude_float,
+		rand_maps_gpu, epsilon_fl, hunt_cap_gpu, authentic_v_gpu, results_gpu, global_steps);
+	
+	checkCUDA(cudaDeviceSynchronize());
+
+	/* Convert result data. Since thread==1, result_vina can be defined as an object
+	 * instead of a vector 
+	 */
+	printf("cuda to vina\n");
+	output_type_cuda_t results;
+	checkCUDA(cudaMemcpy(&results, results_gpu, sizeof(output_type_cuda_t), cudaMemcpyDeviceToHost));
+	output_type result_vina = cuda_to_vina(results);
+	add_to_output_container(out, result_vina, min_rmsd, num_saved_mins);
+	VINA_CHECK(!out.empty());
+	VINA_CHECK(out.front().e <= out.back().e); // make sure the sorting worked in the correct order
+
+	/* Free memory */
+	checkCUDA(cudaFree(m_cuda_gpu));
+	checkCUDA(cudaFree(ig_cuda_gpu));
+	checkCUDA(cudaFree(p_cuda_gpu));
+	checkCUDA(cudaFree(rand_molec_struc_gpu));
+	checkCUDA(cudaFree(best_e_gpu));
+	checkCUDA(cudaFree(hunt_cap_gpu));
+	checkCUDA(cudaFree(authentic_v_gpu));
+	checkCUDA(cudaFree(results));
+	free(rand_maps);
+	free(rand_molec_struc);
+
+	printf("exit monte_carlo\n");
+
+}
+
+/* Above based on monte-carlo.cpp */
+
+#endif

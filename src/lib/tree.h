@@ -40,6 +40,8 @@ struct frame {
 	}
 	const qt& orientation() const { return orientation_q; }
 	const vec& get_origin() const { return origin; }
+	const mat& get_orientation_m() const { return orientation_m; }
+
 protected:
 	vec origin;
 	void set_orientation(const qt& q) { // does not normalize the orientation
@@ -104,6 +106,8 @@ struct axis_frame : public atom_frame {
 	void set_derivative(const vecp& force_torque, fl& c) const {
 		c = force_torque.second * axis;
 	}
+	vec get_axis() { return axis; }
+
 protected:
 	vec axis;
 };
@@ -128,9 +132,10 @@ struct segment : public axis_frame {
 	void count_torsions(sz& s) const {
 		++s;
 	}
-private:
+	// set to public
 	vec relative_axis;
 	vec relative_origin;
+	
 };
 
 struct first_segment : public axis_frame {

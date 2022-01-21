@@ -14,8 +14,8 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 
-   Author: Dr. Oleg Trott <ot14@columbia.edu>, 
-           The Olson Lab, 
+   Author: Dr. Oleg Trott <ot14@columbia.edu>,
+           The Olson Lab,
            The Scripps Research Institute
 
 */
@@ -25,6 +25,8 @@
 
 #include "incrementable.h"
 #include "model.h"
+#include "kernel.h"
+#include "grid.h"
 
 struct monte_carlo {
     unsigned max_evals;
@@ -39,11 +41,11 @@ struct monte_carlo {
     monte_carlo() : max_evals(0), global_steps(2500), temperature(1.2), hunt_cap(10, 1.5, 10), min_rmsd(0.5), num_saved_mins(50), mutation_amplitude(2) {}
 
 	output_type operator()(model& m, const precalculate_byatom& p, const igrid& ig, const vec& corner1,
-                           const vec& corner2, incrementable* increment_me, rng& generator) const;
+                           const vec& corner2, rng& generator) const;
 	// out is sorted
 	void operator()(model& m, output_container& out, const precalculate_byatom& p, const igrid& ig,
-                    const vec& corner1, const vec& corner2, incrementable* increment_me, rng& generator) const;
+                    const vec& corner1, const vec& corner2, rng& generator) const;
+    output_type cuda_to_vina(output_type_cuda_t &results) const;
 };
 
 #endif
-

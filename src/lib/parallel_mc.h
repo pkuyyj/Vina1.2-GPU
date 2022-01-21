@@ -30,8 +30,8 @@ struct parallel_mc {
 	sz num_tasks;
 	sz num_threads;
 	bool display_progress;
-	parallel_mc() : num_tasks(8), num_threads(1), display_progress(true) {}
-	void operator()(const model& m, output_container& out, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, rng& generator, std::function<void(double)>* progress_callback) const;
+	parallel_mc() : num_tasks(8), num_threads(1) {}
+	void operator()(const model& m, output_container& out, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, rng& generator) const;
 };
 
 #endif
