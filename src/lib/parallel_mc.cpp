@@ -61,13 +61,10 @@ void merge_output_containers(const parallel_mc_task_container& many, output_cont
 }
 
 void parallel_mc::operator()(const model& m, output_container& out, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, rng& generator) const {
-	// parallel_progress pp (progress_callback);
 	parallel_mc_aux parallel_mc_aux_instance(&mc, &p, &ig, &corner1, &corner2);
 	parallel_mc_task_container task_container;
 	VINA_FOR(i, num_tasks)
 		task_container.push_back(new parallel_mc_task(m, random_int(0, 1000000, generator)));
-	// if(display_progress) 
-	// 	pp.init(num_tasks * mc.global_steps);
 	parallel_iter<parallel_mc_aux, parallel_mc_task_container, parallel_mc_task, true> parallel_iter_instance(&parallel_mc_aux_instance, num_threads);
 	parallel_iter_instance.run(task_container);
 	merge_output_containers(task_container, out, mc.min_rmsd, mc.num_saved_mins);

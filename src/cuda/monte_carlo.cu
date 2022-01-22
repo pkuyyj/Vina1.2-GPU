@@ -33,7 +33,14 @@
 #include "precalculate.h"
 #include "cache.h"
 
-#define checkCUDA(ret) assert((ret) == cudaSuccess)
+// #define checkCUDA(ret) assert((ret) == cudaSuccess)
+
+__host__
+void checkCUDA(cudaError_t ret){
+	if (ret != cudaSuccess){
+		printf("Cuda error\n");
+	}
+}
 
 
 __device__
@@ -1230,8 +1237,11 @@ void kernel(	m_cuda_t*			m_cuda_global,
 
 	// CUDA function
 	// TODO
+	if (threadIdx.x > 0)
+		exit;
 	int gll = blockIdx.x * blockDim.x + threadIdx.x;
 	// int gll = 0;
+	printf("%d", gll);
 	float best_e = INFINITY;
 
 	do
@@ -1325,7 +1335,7 @@ output_type monte_carlo::cuda_to_vina(output_type_cuda_t &results) const {
 	return result_vina;
 }
 
-
+__host__
 void monte_carlo::operator()(model& m, output_container& out, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, rng& generator) const {
 	
 	/* Definitions from vina1.2 */
@@ -1443,7 +1453,7 @@ void monte_carlo::operator()(model& m, output_container& out, const precalculate
 	for (int i = 0; i < MAX_NUM_OF_RIGID; i++)
 		for (int j = 0; j < MAX_NUM_OF_RIGID; j++)
 			m_cuda.ligand.rigid.children_map[i][j] = false;
-	printf("1"); //debug
+	// printf("1"); //debug
 	for (int i = 1; i < m_cuda.ligand.rigid.num_children + 1; i++) {
 		int parent_index = m_cuda.ligand.rigid.parent[i];
 		m_cuda.ligand.rigid.children_map[parent_index][i] = true;
@@ -1522,6 +1532,9 @@ void monte_carlo::operator()(model& m, output_container& out, const precalculate
 	assert(MAX_P_DATA_M_DATA_SIZE > p.m_data.m_data.size());
 	for (int i = 0; i < p.m_data.m_data.size(); i++) {
 		p_cuda.m_data[i].factor = p.m_data.m_data[i].factor;
+		// printf("FAST_SIZE=%d, fast.size()=%d\n", FAST_SIZE, p.m_data.m_data[i].fast.size());
+		// printf("SMOOTH_SIZE=%d, smooth.size()=%d\n", SMOOTH_SIZE, p.m_data.m_data[i].smooth.size());
+
 		assert(FAST_SIZE == p.m_data.m_data[i].fast.size());
 		assert(SMOOTH_SIZE == p.m_data.m_data[i].smooth.size());
 		for (int j = 0; j < FAST_SIZE; j++) {
@@ -1585,7 +1598,10 @@ void monte_carlo::operator()(model& m, output_container& out, const precalculate
 	checkCUDA(cudaMemcpy(hunt_cap_gpu, hunt_cap_float, 3 * sizeof(float), cudaMemcpyHostToDevice));
 	// Preparing m related data
 	m_cuda_t* m_cuda_gpu;
+	printf("m_cuda_size=%d", m_cuda_size);
 	checkCUDA(cudaMalloc(&m_cuda_gpu, m_cuda_size));
+	printf("m_cuda_gpu");
+	printf("%p\n", m_cuda_gpu);
 	checkCUDA(cudaMemcpy(m_cuda_gpu, &m_cuda, m_cuda_size, cudaMemcpyHostToDevice));
 	// Preparing p related data
 	p_cuda_t *p_cuda_gpu;
@@ -1629,7 +1645,7 @@ void monte_carlo::operator()(model& m, output_container& out, const precalculate
 	checkCUDA(cudaFree(best_e_gpu));
 	checkCUDA(cudaFree(hunt_cap_gpu));
 	checkCUDA(cudaFree(authentic_v_gpu));
-	checkCUDA(cudaFree(results));
+	checkCUDA(cudaFree(results_gpu));
 	free(rand_maps);
 	free(rand_molec_struc);
 

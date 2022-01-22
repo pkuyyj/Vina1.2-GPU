@@ -43,7 +43,7 @@ bool metropolis_accept(fl old_f, fl new_f, fl temperature, rng& generator) {
 
 // out is sorted
 
-void monte_carlo::operator()(model& m, output_container& out, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, incrementable* increment_me, rng& generator) const {
+void monte_carlo::operator()(model& m, output_container& out, const precalculate_byatom& p, const igrid& ig, const vec& corner1, const vec& corner2, rng& generator) const {
     int evalcount = 0;
 	vec authentic_v(1000, 1000, 1000); // FIXME? this is here to avoid max_fl/max_fl
 	conf_size s = m.get_size();
@@ -54,8 +54,8 @@ void monte_carlo::operator()(model& m, output_container& out, const precalculate
 	quasi_newton quasi_newton_par;
     quasi_newton_par.max_steps = local_steps;
 	VINA_U_FOR(step, global_steps) {
-		if(increment_me)
-			++(*increment_me);
+		// if(increment_me)
+		// 	++(*increment_me);
 		if((max_evals > 0) & (evalcount > max_evals))
 			break;
 		output_type candidate = tmp;

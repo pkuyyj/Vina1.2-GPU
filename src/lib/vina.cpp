@@ -932,6 +932,9 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 
 	// Docking post-processing and rescoring
 	poses = remove_redundant(poses, min_rmsd);
+	printf("num_output_poses=%d\n", (int)poses.size());
+	printf("energy=%lf\n", poses[0].e);
+	
 
 	if (!poses.empty()) {
 		printf("vina: poses not empty\n");
