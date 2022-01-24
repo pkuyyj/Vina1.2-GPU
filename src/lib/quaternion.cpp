@@ -73,7 +73,7 @@ vec quaternion_to_angle(const qt& q) {
 }
 
 mat quaternion_to_r3(const qt& q) {
-	assert(quaternion_is_normalized(q));
+	// assert(quaternion_is_normalized(q));
 
 	const fl a = q.R_component_1();
 	const fl b = q.R_component_2();
@@ -91,7 +91,7 @@ mat quaternion_to_r3(const qt& q) {
 	const fl cd = c*d;
 	const fl dd = d*d;
 
-	assert(eq(aa+bb+cc+dd, 1));
+	// assert(eq(aa+bb+cc+dd, 1));
 
 	mat tmp;
 

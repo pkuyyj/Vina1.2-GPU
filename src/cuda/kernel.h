@@ -19,7 +19,7 @@
 #define MAX_NUM_OF_LIG_PAIRS 4096
 #define MAX_NUM_OF_BFGS_STEPS 64
 #define MAX_NUM_OF_RANDOM_MAP 1000 // not too large (stack overflow!)
-#define GRIDS_SIZE 35 // larger than vina1.1, max(XS_TYPE_SIZE, AD_TYPE_SIZE + 2)
+#define GRIDS_SIZE 33 // larger than vina1.1, max(XS_TYPE_SIZE, AD_TYPE_SIZE + 2)
 
 #define MAX_NUM_OF_GRID_MI 128//55
 #define MAX_NUM_OF_GRID_MJ 128//55
@@ -30,8 +30,8 @@
 //#define GRID_MK 61//81
 #define MAX_P_DATA_M_DATA_SIZE 256
 //#define MAX_NUM_OF_GRID_ATOMS 130
-#define FAST_SIZE 12803 // modified for vina1.2
-#define SMOOTH_SIZE 12803
+#define FAST_SIZE 803 // modified for vina1.2
+#define SMOOTH_SIZE 803
 #define MAX_CONTAINER_SIZE_EVERY_WI 5
 
 
